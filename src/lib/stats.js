@@ -50,7 +50,7 @@ export const SOURCES = ['original', 'gate', 'stream', 'lucida', 'yt-dlp'];
 let chain = Promise.resolve();
 
 /** Note one finished track. Never throws — a failed write must not fail a download. */
-export function record({ via, source, ok = true, bytes = 0 }) {
+export function record({ via, source, genre, ok = true, bytes = 0 }) {
   chain = chain.then(async () => {
     try {
       const log = (await host.getStored(KEY)) ?? [];
@@ -59,6 +59,9 @@ export function record({ via, source, ok = true, bytes = 0 }) {
         s: source && SOURCES.includes(source) ? source : sourceOf(via),
         ok: ok ? 1 : 0,
         b: Math.round(bytes / 1e6),
+        // Trimmed hard. SoundCloud genres are free text and some are a
+        // paragraph; this is for a chart, not for the record.
+        g: genre ? String(genre).trim().slice(0, 24) : undefined,
       });
       await host.setStored(KEY, log.slice(-CAP));
     } catch {
@@ -67,6 +70,11 @@ export function record({ via, source, ok = true, bytes = 0 }) {
     }
   });
   return chain;
+}
+
+/** Forget everything. The history is a convenience, not a record. */
+export async function clearLog() {
+  try { await host.setStored(KEY, []); } catch { /* nothing to clear */ }
 }
 
 export async function readLog() {
@@ -87,9 +95,15 @@ export async function readLog() {
  */
 export function summarize(log, span = 12, now = Date.now()) {
   const WEEK = 7 * 24 * 60 * 60 * 1000;
-  const start = now - (span - 1) * WEEK;
 
   const weeks = Array.from({ length: span }, () => 0);
+  // Counted back from now, not forward from a start point.
+  //
+  // Forward was off by one for everything: a track recorded a millisecond ago
+  // divided to 10.999… and floored into the previous bucket, so the newest
+  // column was empty except in the instant a download landed. The chart drew
+  // this week's digging as last week's, every time.
+  const ageInWeeks = (t) => Math.floor((now - t) / WEEK);
   const bySource = Object.fromEntries(SOURCES.map((s) => [s, 0]));
   let failed = 0;
   let mb = 0;
@@ -98,11 +112,22 @@ export function summarize(log, span = 12, now = Date.now()) {
     if (!e?.ok) { failed++; continue; }
     if (e.s in bySource) bySource[e.s]++;
     mb += e.b || 0;
-    if (e.t >= start) weeks[Math.min(span - 1, Math.floor((e.t - start) / WEEK))]++;
+    const age = ageInWeeks(e.t);
+    if (age >= 0 && age < span) weeks[span - 1 - age]++;
   }
+
+  // What you actually dig for, biggest first. Only tracks that arrived and only
+  // ones that stated a genre — SoundCloud leaves it blank often enough that
+  // counting the blanks would make "unknown" the top genre on most crates.
+  const genres = {};
+  for (const e of log) if (e?.ok && e.g) genres[e.g] = (genres[e.g] ?? 0) + 1;
+  const topGenres = Object.entries(genres)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, n]) => ({ name, n }));
 
   const total = log.filter((e) => e?.ok).length;
   const top = SOURCES.reduce((a, b) => (bySource[b] > bySource[a] ? b : a), SOURCES[0]);
 
-  return { weeks, bySource, total, failed, mb, top: bySource[top] ? top : null };
+  return { weeks, bySource, topGenres, total, failed, mb, top: bySource[top] ? top : null };
 }

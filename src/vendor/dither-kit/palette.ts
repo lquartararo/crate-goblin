@@ -6,6 +6,10 @@ export type Rgb = [number, number, number]
 
 export type DitherColor =
   | "crate"
+  | "crate2"
+  | "crate3"
+  | "crate4"
+  | "crate5"
   | "green"
   | "blue"
   | "purple"
@@ -23,6 +27,15 @@ export const PALETTE: Record<DitherColor, Seed> = {
   // as an embed rather than as part of the page. Taken from --color-accent and
   // --color-ink in theme.css, so a change there is a one-line change here.
   crate: { fill: [122, 30, 75], line: [29, 18, 25], star: [240, 216, 228] },
+  // A tonal family rather than five hues. A pie needs its slices told apart and
+  // the stock seeds are saturated colours for a dark UI — dropping them in
+  // would make one chart the only place this palette does not apply. These walk
+  // from the ink to the wash through the accent, which is the range the rest of
+  // the interface already uses.
+  crate2: { fill: [29, 18, 25], line: [122, 30, 75], star: [240, 216, 228] },
+  crate3: { fill: [168, 74, 118], line: [122, 30, 75], star: [246, 237, 240] },
+  crate4: { fill: [88, 52, 70], line: [29, 18, 25], star: [240, 216, 228] },
+  crate5: { fill: [206, 140, 174], line: [122, 30, 75], star: [246, 237, 240] },
   green: { fill: [40, 210, 110], line: [150, 255, 180], star: [200, 255, 220] },
   blue: { fill: [53, 143, 243], line: [150, 200, 255], star: [205, 228, 255] },
   purple: {

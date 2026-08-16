@@ -616,6 +616,31 @@ await test('stats: records and reads back through the host seam', async () => {
   assert.equal(s.weeks.at(-1), 2, 'this week holds the two that worked');
 });
 
+await test('stats: this week lands in this week, not last', async () => {
+  const { summarize } = await import('../src/lib/stats.js');
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const now = 1_700_000_000_000;
+
+  const log = [
+    { t: now - 1, s: 'gate', ok: 1, b: 1 },              // a moment ago
+    { t: now - WEEK - 1, s: 'gate', ok: 1, b: 1 },       // last week
+    { t: now - 11 * WEEK - 1, s: 'gate', ok: 1, b: 1 },  // the far edge
+    { t: now - 40 * WEEK, s: 'gate', ok: 1, b: 1 },      // off the chart
+  ];
+  const s2 = summarize(log, 12, now);
+
+  // The bug this pins: dividing forward from a start point floored a track
+  // recorded a millisecond ago into the previous column, so the newest week was
+  // empty except in the instant a download landed.
+  assert.equal(s2.weeks.at(-1), 1, 'a track from moments ago is in this week');
+  assert.equal(s2.weeks.at(-2), 1, 'last week is last week');
+  assert.equal(s2.weeks.length, 12);
+  assert.equal(s2.weeks.reduce((a, b) => a + b, 0), 3, 'anything older is off the chart');
+
+  // Totals count everything kept, chart window or not.
+  assert.equal(s2.total, 4);
+});
+
 // Reporting lives at the very bottom, and has to stay there.
 //
 // It used to sit above the last few tests, which pushed their results into an

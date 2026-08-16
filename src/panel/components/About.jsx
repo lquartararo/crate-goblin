@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Goblin } from './Goblin.jsx';
 import { Button } from '../ui/button.jsx';
 import { cn } from '../ui/cn.js';
-import { readLog, summarize } from '../../lib/stats.js';
+import { readLog, clearLog, summarize } from '../../lib/stats.js';
 import { THEMES, loadTheme, saveTheme } from '../themes.js';
 
 // What the goblin is hiding.
@@ -56,6 +56,7 @@ export function About({ onClose }) {
   const [theme, setTheme] = useState(null);
   const [detail, setDetail] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const panel = useRef(null);
 
   const version = chrome.runtime.getManifest().version;
@@ -82,6 +83,19 @@ export function About({ onClose }) {
   function pick(name) {
     setTheme(name);
     saveTheme(name);   // applies immediately; the canvases repaint themselves
+  }
+
+  // Two presses, because there is no undo and the button sits next to the one
+  // people actually came here for.
+  async function reset() {
+    if (!confirming) {
+      setConfirming(true);
+      setTimeout(() => setConfirming(false), 4000);
+      return;
+    }
+    await clearLog();
+    setConfirming(false);
+    setDetail((d) => ({ ...d, stats: summarize([]) }));
   }
 
   async function copy() {
@@ -161,9 +175,15 @@ export function About({ onClose }) {
         {/* justify-center because the base button is inline-flex and packs to
             the start, which is right beside an icon and wrong once it spans the
             dialog. */}
-        <Button size="sm" onClick={copy} className="mt-4 w-full justify-center">
-          {copied ? 'Copied — send it to Louis' : 'Copy diagnostics'}
-        </Button>
+        <div className="mt-4 flex gap-2">
+          <Button size="sm" onClick={copy} className="flex-1 justify-center">
+            {copied ? 'Copied — send it to Louis' : 'Copy diagnostics'}
+          </Button>
+          <Button size="sm" onClick={reset}
+                  className={cn('justify-center', confirming && 'text-err border-err')}>
+            {confirming ? 'Sure?' : 'Reset stats'}
+          </Button>
+        </div>
 
         <p className="mt-5 mb-0 text-center font-mono text-[10px] tracking-[.14em]
                       uppercase opacity-45">

@@ -165,16 +165,19 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
       // Kept out of the row and out of the way, but not thrown away — this is
       // the only trace of which route was tried first.
       if (res.note) console.debug('[crate] took the fallback:', row.title, '—', res.note);
-      record({ via: res.via, source: res.source, ok: !failed, bytes: res.bytes });
+      record({ via: res.via, source: res.source, genre: row.genre,
+               ok: !failed, bytes: res.bytes });
       push(row.id, { text: `${res.via}${size}`, cls: failed ? 'warn' : 'ok',
                      inFlight: false, done: true, progress: 1 });
     } catch (e) {
-      record({ via: '', ok: false });
-      // A track you took back is not a track that failed.
+      // A track you took back is not a track that failed — and this recorded it
+      // as one, two lines above the comment saying so. Cancelling four tracks
+      // put four failures in the history and on the stats.
       if (cancelled.has(row.id)) {
         cancelled.delete(row.id);
         return push(row.id, { text: 'cancelled', cls: 'ok', inFlight: false, done: true, leaving: true });
       }
+      record({ via: '', ok: false });
       push(row.id, { text: e.message, cls: 'err', inFlight: false, done: true });
     }
   })));
