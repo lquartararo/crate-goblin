@@ -38,15 +38,19 @@ const direct = {
    * worker's onDeterminingFilename listener — which is the thing that actually
    * has the last word on what a file is called. One path, one naming rule.
    */
-  async save(blob, filename) {
-    const url = URL.createObjectURL(blob);
+  async save(blobOrUrl, filename) {
+    // A string is already a URL the browser can fetch itself; only a Blob needs
+    // wrapping. Gate files arrive as the former, so their bytes never enter the
+    // extension and CORS never applies to them.
+    const isUrl = typeof blobOrUrl === 'string';
+    const url = isUrl ? blobOrUrl : URL.createObjectURL(blobOrUrl);
     try {
       const res = await chrome.runtime.sendMessage({ type: 'host:save', url, filename });
       if (!res?.ok) throw new Error(res?.reason ?? 'download failed');
       return res.id;
     } finally {
       // Revoking immediately can cancel an in-flight download.
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (!isUrl) setTimeout(() => URL.revokeObjectURL(url), 60_000);
     }
   },
 };

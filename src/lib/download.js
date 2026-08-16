@@ -134,6 +134,19 @@ async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
  * same converter, so there is still exactly one answer to "make this the format
  * that was asked for".
  */
+/**
+ * Pull a URL straight to disk with the browser, then convert it.
+ *
+ * Same destination as convertOnDisk and a different starting point: this one
+ * never holds the bytes, which is what lets it cross an origin the extension
+ * has no permission for.
+ */
+async function fetchToDisk(url, row, opts, onProgress) {
+  onProgress?.({ phase: 'remuxing' });
+  const id = await save(url, `crate-goblin-staging/${crypto.randomUUID()}`);
+  return convertStaged(id, row, opts);
+}
+
 async function convertOnDisk(blob, row, opts, onProgress) {
   onProgress?.({ phase: 'remuxing' });
 
@@ -144,6 +157,11 @@ async function convertOnDisk(blob, row, opts, onProgress) {
   // conversion that died — see STAGING in crate-goblin-host.py. Renaming it
   // needs both sides.
   const id = await save(blob, `crate-goblin-staging/${crypto.randomUUID()}`);
+  return convertStaged(id, row, opts);
+}
+
+/** The half both staging paths share: find the file, hand it to ffmpeg. */
+async function convertStaged(id, row, opts) {
   const found = await chrome.runtime.sendMessage({ type: 'host:path', id });
   if (!found?.ok) throw new Error('the browser saved the file somewhere it could not name');
 
@@ -165,7 +183,7 @@ async function convertOnDisk(blob, row, opts, onProgress) {
     },
   });
   if (!res?.ok) throw new Error(res?.reason ?? 'conversion failed');
-  return { ext: res.name.split('.').pop(), bytes: blob.size, savedAs: res.name };
+  return { ext: res.name.split('.').pop(), bytes: res.bytes ?? 0, savedAs: res.name };
 }
 
 // ----------------------------------------------------------------- the gate
@@ -206,17 +224,16 @@ async function grabViaGate(row, opts, onProgress) {
 
   if (!res.fileUrl) throw new Error('gate reported success without a file');
 
-  const file = await fetch(res.fileUrl);
-  if (!file.ok) throw new Error(`gate file ${file.status}`);
-
-  const type = file.headers.get('content-type') ?? '';
-  if (/text\/html/i.test(type)) throw new Error('gate returned a page, not a file');
-
-  const blob = await file.blob();
-  if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`gate file too small (${blob.size} B)`);
-
+  // Downloaded by the browser rather than fetched.
+  //
+  // A gate hands back a file on whatever host it likes — a samples CDN, an S3
+  // bucket — and this had permission for the gate's origin, not that one. So
+  // the fetch was cross-origin, the file server sent no Access-Control-Allow-
+  // Origin, and Chrome blocked a request for a file it would have downloaded
+  // without complaint. chrome.downloads is not an XHR and CORS does not apply
+  // to it; it also means the bytes never pass through the extension.
   try {
-    const out = await convertOnDisk(blob, row, opts, onProgress);
+    const out = await fetchToDisk(res.fileUrl, row, opts, onProgress);
     return { via: `gate → ${out.ext}`, bytes: out.bytes, savedAs: out.savedAs };
   } catch (e) {
     // The gate worked and the conversion did not. Reported apart from a gate

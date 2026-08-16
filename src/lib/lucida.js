@@ -64,7 +64,11 @@ export class NoMatch extends Error {
 
 export class LucidaChallenge extends Error {
   constructor() {
-    super('lucida.to challenge — open lucida.to and clear the check');
+    // No instructions. This clears on its own within a few minutes, and the
+    // previous wording sent people to a site to perform a ritual that was going
+    // to happen anyway — worse than saying nothing, because it implied they had
+    // caused it and had to fix it.
+    super('the fallback service is busy');
     this.name = 'LucidaChallenge';
   }
 }
@@ -107,10 +111,35 @@ function between(html, start, end) {
  *
  * Returns the service's own track URLs, best first.
  */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Retry a lucida call that came back 429.
+ *
+ * A crate is dozens of tracks and lucida is one small free service. Being told
+ * "too many requests" is not a failure to report, it is the service asking for
+ * a moment — and reporting it as an error meant a queue that hit the limit once
+ * showed a page of red for tracks that would have worked seconds later.
+ *
+ * Long waits on purpose. The point is to stop asking, not to ask again sooner.
+ */
+async function withBackoff(fn, { tries = 4 } = {}) {
+  for (let i = 1; ; i++) {
+    const res = await fn();
+    if (res.status !== 429 || i >= tries) return res;
+    const stated = Number(res.headers?.['retry-after'] ?? res.retryAfter);
+    const wait = Number.isFinite(stated) && stated > 0
+      ? Math.min(stated * 1000, 30_000)
+      : 2_000 * 2 ** (i - 1);
+    await sleep(wait);
+  }
+}
+
 export async function search(query, service, country = 'auto') {
   const params = new URLSearchParams({ query, service, country });
-  const res = await pageFetch(`${BASE}/search?${params}`);
+  const res = await withBackoff(() => pageFetch(`${BASE}/search?${params}`));
   if (res.status === 403) throw new LucidaChallenge();
+  if (res.status === 429) throw new LucidaChallenge();
   if (res.status !== 200) throw new Error(`lucida search ${res.status}`);
 
   // Results are plain links back into the resolver: /?url=<encoded service url>.
@@ -142,11 +171,12 @@ export async function search(query, service, country = 'auto') {
 export async function resolve(trackUrl, { country = 'auto', to = null } = {}) {
   const params = new URLSearchParams({ url: trackUrl, country });
   if (to) params.set('to', to);
-  const res = await pageFetch(`${BASE}/?${params}`);
+  const res = await withBackoff(() => pageFetch(`${BASE}/?${params}`));
 
   // Their client treats 403 as a distinct state, not a failure — it means the
-  // challenge, and the fix is a human clearing it once.
+  // challenge, which clears itself.
   if (res.status === 403) throw new LucidaChallenge();
+  if (res.status === 429) throw new LucidaChallenge();
   if (res.status !== 200) throw new Error(`lucida resolve ${res.status}`);
 
   // A failed match is a 200 with a redirect, not an error status: the URL comes
@@ -182,7 +212,7 @@ export async function resolve(trackUrl, { country = 'auto', to = null } = {}) {
  * client passes as `secondary`.
  */
 export async function requestDownload({ url, csrf, csrfFallback, expiry, country = 'auto' }) {
-  const res = await pageFetch(`${BASE}/api/load?url=%2Fapi%2Ffetch%2Fstream%2Fv2`, {
+  const res = await withBackoff(() => pageFetch(`${BASE}/api/load?url=%2Fapi%2Ffetch%2Fstream%2Fv2`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     // Shape taken from the site's own request rather than the Rust client's
@@ -205,9 +235,10 @@ export async function requestDownload({ url, csrf, csrfFallback, expiry, country
       upload: { enabled: false, service: 'pixeldrain' },
       url,
     }),
-  });
+  }));
 
   if (res.status === 403) throw new LucidaChallenge();
+  if (res.status === 429) throw new LucidaChallenge();
   if (res.status !== 200) throw new Error(`lucida load ${res.status}`);
 
   let body;

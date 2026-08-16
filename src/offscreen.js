@@ -25,15 +25,19 @@ setHost({
   setStored: (key, value) => ask('host:set', { key, value }),
   oauthToken: () => ask('host:oauth').then((r) => r?.token ?? null),
 
-  async save(blob, filename) {
-    const url = URL.createObjectURL(blob);
+  async save(blobOrUrl, filename) {
+    // A string is already a URL the browser can fetch; only a Blob needs
+    // wrapping. Gate files come as the former so they never cross an origin
+    // check the extension would fail.
+    const isUrl = typeof blobOrUrl === 'string';
+    const url = isUrl ? blobOrUrl : URL.createObjectURL(blobOrUrl);
     try {
       const res = await ask('host:save', { url, filename });
       if (!res?.ok) throw new Error(res?.reason ?? 'download failed');
       return res.id;
     } finally {
       // Long enough for the download to have been read off the URL.
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (!isUrl) setTimeout(() => URL.revokeObjectURL(url), 60_000);
     }
   },
 });
@@ -77,7 +81,10 @@ async function downloadOne(url) {
 // now — these slots mostly wait on a socket — so the ceiling is SoundCloud's
 // patience rather than ours.
 const scPool = createLimiter(6);
-const lucidaPool = createLimiter(3);
+// One at a time. Three concurrent requests against one small free service is
+// what earned the 429s — a crate is dozens of tracks and every one of them was
+// asking at once. Slower, and it finishes.
+const lucidaPool = createLimiter(1);
 
 /** id -> the last status pushed, so a reopened panel can catch up. */
 const state = new Map();

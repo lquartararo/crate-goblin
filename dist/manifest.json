@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "crate goblin",
-  "version": "0.22.2",
+  "version": "0.22.3",
   "description": "It gets in, it takes the record. SoundCloud, and anything yt-dlp can reach.",
   "permissions": [
     "downloads",

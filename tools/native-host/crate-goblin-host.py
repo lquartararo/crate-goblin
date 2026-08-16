@@ -172,7 +172,16 @@ def convert(msg):
             "log": LOG,
         })
 
-    log(f"convert: {os.path.basename(src)} -> {msg.get('format')}")
+    # What the extension used to check before it stopped holding the bytes: a
+    # gate that answers with an error page, or a truncated file, is not a track.
+    size = os.path.getsize(src)
+    if size < 128 * 1024:
+        log(f"convert: {os.path.basename(src)} is only {size} B — not a track")
+        try: os.unlink(src)
+        except OSError: pass
+        return send({"type": "error", "reason": f"the gate returned {size} bytes, not a track"})
+
+    log(f"convert: {os.path.basename(src)} ({size // 1024} KB) -> {msg.get('format')}")
 
     fmt = str(msg.get("format") or "mp3").lower()
     dest = os.path.join(out_dir_for(msg.get("folder")),
@@ -221,7 +230,8 @@ def convert(msg):
     try: os.unlink(src)
     except OSError: pass
 
-    send({"type": "done", "path": dest, "name": os.path.basename(dest)})
+    send({"type": "done", "path": dest, "name": os.path.basename(dest),
+          "bytes": os.path.getsize(dest)})
 
 
 def fetch_artwork(url):
