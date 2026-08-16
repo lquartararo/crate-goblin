@@ -4,11 +4,42 @@
 
 import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
+import { classify } from './lib/paths.js';
 
 const PANEL = 'src/panel/panel.html';
 
 // Loaded unpacked from a git checkout, so it updates itself — see update.js.
 scheduleUpdateChecks();
+
+// --------------------------------------------------------------- toolbar
+//
+// An extension cannot pin itself to the toolbar; that is the user's decision
+// and Chrome guards it. What it can do is stop looking inert on the pages where
+// it has something to offer.
+//
+// So the icon carries a badge on a SoundCloud page it can act on, and nothing
+// anywhere else. Once pinned, that is the difference between a permanently
+// identical icon and one that tells you it noticed where you are.
+const BADGE = { crate: '\u2022', track: '\u2022' };
+
+async function markTab(tabId, url) {
+  const kind = url ? classify(url) : null;
+  try {
+    await chrome.action.setBadgeText({ tabId, text: kind ? BADGE[kind] ?? '' : '' });
+    if (kind) {
+      await chrome.action.setBadgeBackgroundColor({ tabId, color: '#7a1e4b' });
+      await chrome.action.setTitle({
+        tabId,
+        title: kind === 'crate' ? 'Crate Goblin: download this playlist'
+                                : 'Crate Goblin: download this track',
+      });
+    } else {
+      await chrome.action.setTitle({ tabId, title: 'Crate Goblin' });
+    }
+  } catch {
+    // Tab closed mid-update. Nothing to do and nothing worth reporting.
+  }
+}
 
 // ------------------------------------------------------------------ prefetch
 
@@ -51,11 +82,15 @@ function schedulePrefetch(url) {
   prefetchTimer = setTimeout(() => prefetch(url), PREFETCH_DELAY);
 }
 
-chrome.tabs.onUpdated.addListener((_id, info, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  // The badge follows every navigation, not just completed ones in the active
+  // tab: a SPA route change on soundcloud.com never reports `complete` again.
+  if (info.status || info.url) markTab(tabId, tab.url);
   if (tab.active && info.status === 'complete' && tab.url) schedulePrefetch(tab.url);
 });
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
+  markTab(tabId, tab?.url);
   if (tab?.url) schedulePrefetch(tab.url);
 });
 

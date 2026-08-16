@@ -15,6 +15,7 @@ import { BUCKET, isAutomatable } from './triage.js';
 import { host } from './host.js';
 import { currentSession } from './session.js';
 import { fetchTrack } from './lucida.js';
+import { fetchFromYouTube } from './youtube.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
 // slash in a title will silently nest it into a folder you didn't ask for.
@@ -443,18 +444,56 @@ async function grabViaLucida(row, opts, onProgress) {
  * reason SoundCloud wouldn't serve the track is the useful one, and "lucida
  * needs a browser check" on top of it would bury it.
  */
+async function grabViaYouTube(row, opts, onProgress) {
+  onProgress?.({ phase: 'youtube' });
+  const query = [row.artist, row.title].filter(Boolean).join(' ').trim();
+
+  const { blob, title, videoId } = await fetchFromYouTube(query, {
+    durationMs: row.durationMs,
+    onProgress: (p) => onProgress?.({ phase: 'youtube', stage: p?.stage }),
+  });
+  if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`YouTube file too small (${blob.size} B)`);
+
+  // Opus in a WebM container. finalize decodes it like anything else, and the
+  // requested format still wins.
+  const out = await finalize(blob, 'webm', row, opts, onProgress);
+  const differs = title && row.title
+    && title.trim().toLowerCase() !== row.title.trim().toLowerCase();
+
+  return {
+    via: `youtube → ${out.ext}${differs ? ` · matched "${title}"` : ''}`,
+    bytes: out.bytes,
+    matchedFrom: `youtube:${videoId}`,
+  };
+}
+
+/**
+ * Everything after SoundCloud, in order of how good the result is.
+ *
+ * lucida first, because a match there is a real commercial master. YouTube
+ * last, because it is roughly the quality of the stream we could not get, and
+ * is worth taking only when the alternative is nothing at all.
+ */
 async function orLucida(attempt, row, opts, onProgress) {
   try {
     return await attempt();
   } catch (e) {
     if (e.lucidaTried || !row.permalink) throw e;
-    onProgress?.({ phase: 'fallback', reason: `${e.message} — trying lucida` });
+
+    onProgress?.({ phase: 'fallback', reason: `${e.message} — looking elsewhere` });
     try {
       return await grabViaLucida(row, opts, onProgress);
     } catch (inner) {
       // A challenge is actionable in a way the original error isn't, so it's
       // the one worth surfacing.
       if (inner.name === 'LucidaChallenge') throw inner;
+    }
+
+    try {
+      return await grabViaYouTube(row, opts, onProgress);
+    } catch {
+      // Report why SoundCloud refused, not why the last resort did. The first
+      // failure is the one that explains the situation.
       throw e;
     }
   }
@@ -520,9 +559,13 @@ async function route(row, track, opts = {}, onProgress) {
     try {
       return await grabViaLucida(row, opts, onProgress);
     } catch (e) {
-      // Tagged so the wrapper doesn't immediately try lucida a second time.
-      e.lucidaTried = true;
-      throw e;
+      try {
+        return await grabViaYouTube(row, opts, onProgress);
+      } catch {
+        // Tagged so the wrapper doesn't walk the same two fallbacks again.
+        e.lucidaTried = true;
+        throw e;
+      }
     }
   }
 
