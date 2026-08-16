@@ -261,8 +261,8 @@ still match and nothing happens; the next check picks it up.
 ### On their machine, once
 
 ```
-git clone https://github.com/lquartararo/soundcloud-crate.git
-cd soundcloud-crate
+git clone https://github.com/lquartararo/crate-goblin.git
+cd crate-goblin
 ./tools/install-updater.sh
 ```
 

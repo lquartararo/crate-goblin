@@ -289,8 +289,21 @@ chrome.downloads.onCreated.addListener(async (item) => {
     //   resolves  we stopped it in time — erase the record and refetch the URL
     //   rejects   it already finished, so the bytes are on disk; refetching
     //             would leave two copies with Chrome uniquifying the second
+    // Ask what state it's in *now*. `item` is a snapshot from when the event
+    // fired and still says in_progress long after the download has landed, so
+    // it can't answer this. A small file from a fast CDN routinely finishes
+    // while this handler is still awaiting currentGate().
+    const [live] = await chrome.downloads.search({ id: item.id }).catch(() => []);
+    if (live && live.state !== 'in_progress') {
+      gate.alreadyOnDisk = true;
+      return;
+    }
+
     chrome.downloads.cancel(item.id).then(
       () => chrome.downloads.erase({ id: item.id }).catch(() => {}),
+      // Still possible: it can finish between the search above and this call.
+      // The promise form reports that as a rejection rather than through
+      // runtime.lastError, so there is nothing left to go unchecked.
       () => { gate.alreadyOnDisk = true; },
     );
   }
