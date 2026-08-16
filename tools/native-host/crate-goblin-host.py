@@ -154,8 +154,25 @@ def convert(msg):
         return send({"type": "error", "reason": "ffmpeg is not installed. Re-run install-updater.sh"})
 
     src = msg.get("path")
-    if not isinstance(src, str) or not os.path.isfile(src):
-        return send({"type": "error", "reason": "that file is not where the browser said it was"})
+    if not isinstance(src, str):
+        return send({"type": "error", "reason": "no file to convert"})
+
+    # Told apart deliberately. A missing file means the browser and this process
+    # disagree about where it went; an unreadable one means macOS is refusing
+    # this process access to the folder, which is a different problem with a
+    # different fix and would otherwise read as the same failure.
+    if not os.path.exists(src):
+        log(f"convert: no such file {src}")
+        return send({"type": "error", "reason": f"the browser's file was not at {src}", "log": LOG})
+    if not os.access(src, os.R_OK):
+        log(f"convert: cannot read {src} — permission denied")
+        return send({
+            "type": "error",
+            "reason": "macOS is blocking the downloader from reading your Downloads folder",
+            "log": LOG,
+        })
+
+    log(f"convert: {os.path.basename(src)} -> {msg.get('format')}")
 
     fmt = str(msg.get("format") or "mp3").lower()
     dest = os.path.join(out_dir_for(msg.get("folder")),

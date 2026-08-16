@@ -202,8 +202,17 @@ async function grabViaGate(row, opts, onProgress) {
   const blob = await file.blob();
   if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`gate file too small (${blob.size} B)`);
 
-  const out = await convertOnDisk(blob, row, opts, onProgress);
-  return { via: `gate → ${out.ext}`, bytes: out.bytes, savedAs: out.savedAs };
+  try {
+    const out = await convertOnDisk(blob, row, opts, onProgress);
+    return { via: `gate → ${out.ext}`, bytes: out.bytes, savedAs: out.savedAs };
+  } catch (e) {
+    // The gate worked and the conversion did not. Reported apart from a gate
+    // that refused, because "the markup moved again" is expected and this is a
+    // fault in our own plumbing — collapsing both into "gate failed" hides the
+    // one worth fixing behind the one that is routine.
+    e.afterUnlock = true;
+    throw e;
+  }
 }
 
 // --------------------------------------------------------------- the lucida
@@ -375,12 +384,16 @@ async function route(row, track, opts = {}, onProgress) {
       try {
         return await grabViaGate(row, opts, onProgress);
       } catch (e) {
-        // The expected case, not an exception: gate markup shifts constantly.
-        // Take the stream and keep the gate queued so it's still recoverable by
-        // hand — this is why row.url survives a failed attempt.
+        // A gate refusing is the expected case, not an exception: the markup
+        // shifts constantly. Take the stream and keep the gate queued so it is
+        // still recoverable by hand — this is why row.url survives.
         onProgress?.({ phase: 'fallback', reason: e.message });
         const res = await viaBridge(row, opts, onProgress);
-        return { ...res, via: `${res.via} (gate failed)`, gateFailed: true };
+        // Say which half broke. `unlocked, then ${reason}` means the gate gave
+        // up a file and something on our side lost it, which is a bug rather
+        // than a fact about the internet.
+        const why = e.afterUnlock ? `unlocked, then ${e.message}` : 'gate failed';
+        return { ...res, via: `${res.via} (${why})`, gateFailed: true };
       }
     }
 
