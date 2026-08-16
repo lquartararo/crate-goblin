@@ -77,11 +77,15 @@ export function Guide({ service, running, error }) {
   const works = service ? WORKS_ON[service] : null;
 
   return (
-    // The measure belongs to the prose, not to the section. Capping the whole
-    // thing at 46ch left the buttons ending two thirds of the way across a wide
-    // panel, which reads as a layout that failed rather than one that chose.
     <section className="pt-7">
-      <p className="m-0 mb-4.5 max-w-[46ch] text-[15px] leading-normal">{lead}</p>
+      {/* No measure on this. A 46ch cap is the textbook line length and it was
+          the wrong call here: everything else in the panel — the rules, the
+          buttons, the list — runs the full width, so the one capped element
+          stopped short of every edge around it and read as a paragraph that had
+          failed to fill rather than one that had been set. At the width this
+          panel actually opens at, 46ch was never the binding constraint
+          anyway. */}
+      <p className="m-0 mb-4.5 text-[15px] leading-normal">{lead}</p>
 
       {!error && !works && (
         <div className="grid gap-2.5">
