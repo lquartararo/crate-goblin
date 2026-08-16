@@ -1,0 +1,95 @@
+{
+  "manifest_version": 3,
+  "name": "SoundCloud Crate",
+  "version": "0.2.0",
+  "description": "Triage a SoundCloud playlist into free / gated / stream-only, grab what's grabbable, and batch the gates.",
+  "permissions": [
+    "downloads",
+    "cookies",
+    "tabs",
+    "storage",
+    "scripting",
+    "sidePanel",
+    "offscreen",
+    "alarms"
+  ],
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
+  "host_permissions": [
+    "https://soundcloud.com/*",
+    "https://api-v2.soundcloud.com/*",
+    "https://*.sndcdn.com/*",
+    "https://playback.media-streaming.soundcloud.cloud/*",
+    "https://*.hypeddit.com/*",
+    "https://*.toneden.io/*",
+    "https://*.theartistunion.com/*",
+    "https://*.pumpyoursound.com/*",
+    "https://*.droploud.com/*",
+    "https://*.gaterush.me/*",
+    "https://*.lucida.to/*",
+    "https://raw.githubusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://soundcloud.com/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.hypeddit.com/*",
+        "https://*.toneden.io/*",
+        "https://*.theartistunion.com/*",
+        "https://*.pumpyoursound.com/*",
+        "https://*.droploud.com/*",
+        "https://*.gaterush.me/*"
+      ],
+      "js": [
+        "src/gate/suppress.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.hypeddit.com/*",
+        "https://*.toneden.io/*",
+        "https://*.theartistunion.com/*",
+        "https://*.pumpyoursound.com/*",
+        "https://*.droploud.com/*",
+        "https://*.gaterush.me/*"
+      ],
+      "js": [
+        "src/gate/unlock.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "SoundCloud Crate \u2014 download this playlist",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}
