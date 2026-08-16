@@ -29,8 +29,12 @@ export function StatStrip({ rows }) {
   ];
 
   return (
-    <section className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-3
-                        border-b-[1.5px] border-ink">
+    // No rule of its own. The counts and the controls under them are one
+    // thought — what is in the crate, and what you are about to do with it —
+    // and a line between them cut a 60px band off another 60px band. The
+    // controls keep theirs, which is the boundary that means something: setup
+    // above, the queue working below.
+    <section className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pt-3 pb-1.5">
       {stats.map((s) => (
         <div key={s.label}
              className="inline-flex items-baseline gap-1.5 font-mono text-[11px]

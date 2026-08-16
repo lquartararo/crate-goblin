@@ -313,7 +313,10 @@ export function Panel() {
 
       {state === 'ready' && (
         <>
-          <StatStrip rows={crate.rows} />
+          {/* Free, gated and stream are SoundCloud's triage. yt-dlp has no
+              such thing and every native row is hardcoded to STREAM, so on
+              YouTube this was a row of constants under a heading. */}
+          {!isNative && <StatStrip rows={crate.rows} />}
 
           <section className="flex flex-wrap items-end gap-x-4 gap-y-3 py-3.5 border-b-[1.5px] border-ink">
             {!isNative && (
