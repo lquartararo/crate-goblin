@@ -6,7 +6,8 @@ import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
 import { classify, classifyYouTube } from './lib/paths.js';
 import { currentSession } from './lib/session.js';
-import { probeBridge, downloadNative, convertNative, cancelNative, discardNative } from './lib/native.js';
+import { probeBridge, downloadNative, convertNative, cancelNative, discardNative,
+         sweepNative } from './lib/native.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -617,6 +618,25 @@ async function ensureOffscreen() {
   await offscreenReady;
 }
 
+const STAGED_FLAG = 'staging-dirty';
+
+/**
+ * Clear anything a quit or a crash left in staging.
+ *
+ * Gated on a flag rather than run unconditionally: spawning a native process on
+ * every browser start to look at a folder that usually does not exist is a cost
+ * with no payer. The flag is set the first time a file is staged and cleared
+ * once the folder is gone.
+ */
+async function sweepIfDirty() {
+  const { [STAGED_FLAG]: dirty } = await chrome.storage.local.get(STAGED_FLAG).catch(() => ({}));
+  if (!dirty) return;
+  if (await sweepNative()) await chrome.storage.local.remove(STAGED_FLAG).catch(() => {});
+}
+
+chrome.runtime.onStartup.addListener(sweepIfDirty);
+chrome.runtime.onInstalled.addListener(sweepIfDirty);
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ---- host proxy for the offscreen document ----------------------------
   //
@@ -655,6 +675,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // them that anything here can address: /resolve 404s, and /system-playlists
   // wants a urn the URL does not carry. The page already has the answer, so it
   // gets asked for it.
+  // Asked for when the queue drains, and on browser start for whatever a crash
+  // or a quit mid-download left behind.
+  if (msg.type === 'native:sweep') {
+    sweepNative().then((ok) => sendResponse({ ok }));
+    return true;
+  }
+
   if (msg.type === 'native:cancel') {
     const stopped = cancelNative(msg.id);
     // Whatever it had already written is not wanted either.
@@ -780,6 +807,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // the pipeline computing the right name, which is what that option being
     // overridden looks like from the outside.
     if (msg.filename) rememberSave(msg.url, msg.filename);
+    // Remember that the folder exists, so a browser restart knows to look.
+    if (msg.filename?.startsWith('crate-goblin-staging/')) {
+      chrome.storage.local.set({ [STAGED_FLAG]: true }).catch(() => {});
+    }
 
     chrome.downloads.download({ url: msg.url, filename: msg.filename, saveAs: false }, (id) => {
       const err = chrome.runtime.lastError;

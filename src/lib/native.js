@@ -87,6 +87,19 @@ export async function convertNative(job) {
   });
 }
 
+/** Wipe staging entirely. For when nothing can be running. Never throws. */
+export async function sweepNative() {
+  return new Promise((resolve) => {
+    let port;
+    try { port = chrome.runtime.connectNative(HOST); } catch { return resolve(false); }
+    const done = (v) => { try { port.disconnect(); } catch { /* gone */ } resolve(v); };
+    port.onMessage.addListener(() => done(true));
+    port.onDisconnect.addListener(() => { chrome.runtime.lastError; resolve(false); });
+    port.postMessage({ type: 'sweep' });
+    setTimeout(() => done(false), 4000);
+  });
+}
+
 /** Clear staging files a cancelled row left behind. Never throws. */
 export async function discardNative(id) {
   return new Promise((resolve) => {

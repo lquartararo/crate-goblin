@@ -184,6 +184,10 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
   // visibly finished reads as something that was left behind.
   if (--batches === 0) {
     chrome.runtime.sendMessage({ type: 'lucida:release' }).catch(() => {});
+    // Nothing is in flight, so anything still in staging is dead. This is the
+    // moment the folder can be removed outright rather than waiting an hour for
+    // files to age out.
+    chrome.runtime.sendMessage({ type: 'native:sweep' }).catch(() => {});
   }
 }
 
