@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BUCKET } from '../lib/triage.js';
+import { serviceOf } from '../lib/paths.js';
 import { Button } from './ui/button.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select.jsx';
 import { StatStrip } from './components/StatStrip.jsx';
@@ -213,7 +214,16 @@ export function Panel() {
 
 
   const idle = state === 'idle' || state === 'error';
-  const onSoundcloud = Boolean(crate.url?.startsWith('https://soundcloud.com/'));
+  // Which site the tab is on, whether or not this page has anything on it. An
+  // idle SoundCloud page and an idle YouTube page are different situations and
+  // used to share one answer aimed at the first of them.
+  const service = serviceOf(crate.url);
+
+  const IDLE_EYEBROW = {
+    soundcloud: 'Nothing to dig through here',
+    youtube: 'Nothing to take here',
+  };
+  const IDLE_TITLE = { soundcloud: 'Open a crate', youtube: 'Open a video' };
 
   return (
     <div className="relative px-10 pt-[34px] pb-18" style={entrance ?? undefined}>
@@ -266,7 +276,7 @@ export function Panel() {
           )}>
             <span>
               {state === 'loading' ? 'Loading' : idle
-                ? (onSoundcloud ? 'Nothing to dig through here' : 'Nowhere to dig')
+                ? (IDLE_EYEBROW[service] ?? 'Nowhere to dig')
                 : `${crate.rows.length} ${crate.rows.length === 1 ? 'track' : 'tracks'}`}
             </span>
             {/* Counts the whole queue, not this crate — work continues after you
@@ -289,14 +299,14 @@ export function Panel() {
           </div>
           <CrateTitle tight={tight} title={
             state === 'loading' ? '' : idle
-              ? (state === 'error' ? 'That did not go well' : onSoundcloud ? 'Open a crate' : 'Pick a site')
+              ? (state === 'error' ? 'That did not go well' : IDLE_TITLE[service] ?? 'Pick a site')
               : crate.title
           } />
         </div>
       </header>
 
       {idle && !queue.length && (
-        <Guide onSoundcloud={onSoundcloud} running={active} error={state === 'error' ? error : null} />
+        <Guide service={service} running={active} error={state === 'error' ? error : null} />
       )}
 
       <Haul tally={haul} onDone={clearHaul} />

@@ -7,6 +7,11 @@ import { ProviderMark } from './ProviderMark.jsx';
  * both describe a download that can't happen, and a Download button with
  * nothing to download invites a click that does nothing. So they're gone,
  * replaced with what to do instead.
+ *
+ * Which "instead" depends on where you already are. On a supported site the
+ * useful answer is which pages work; only when you are somewhere else entirely
+ * is the answer "go to one of these". Offering a YouTube button to someone
+ * standing on youtube.com is answering a question they did not ask.
  */
 
 // Navigating the tab you are looking at, rather than opening another one. The
@@ -25,6 +30,34 @@ const SITES = [
     note: 'Any video or playlist' },
 ];
 
+const Code = ({ children }) => (
+  <code className="font-mono bg-wash px-1.5 py-px tracking-[.06em]">{children}</code>
+);
+
+// What counts on each site. These are the paths paths.js actually accepts, so
+// the list is a description of the routing rather than a promise beside it.
+const WORKS_ON = {
+  soundcloud: [
+    <>A playlist — <Code>/sets/…</Code></>,
+    'An album',
+    'An artist profile, or its tracks tab',
+    'A single track',
+  ],
+  youtube: [
+    'Any video',
+    <>A playlist — <Code>/playlist?list=…</Code></>,
+    // Worth stating outright: a video opened from a mix carries `list=` and
+    // looks like a playlist, and this deliberately takes the one video rather
+    // than the two hundred behind it.
+    'A video playing inside a mix counts as that one video',
+  ],
+};
+
+const LEAD = {
+  soundcloud: 'Nothing here to dig through. Open any of these and it picks them up on its own:',
+  youtube: 'Nothing here to take. Open any of these and it picks them up on its own:',
+};
+
 const Bullet = ({ children }) => (
   // A filled cell rather than a bullet glyph, which would pull in a system font
   // on a page that deliberately has none.
@@ -35,11 +68,13 @@ const Bullet = ({ children }) => (
   </li>
 );
 
-export function Guide({ onSoundcloud, running, error }) {
+/** @param {'soundcloud'|'youtube'|null} service  where the tab already is */
+export function Guide({ service, running, error }) {
   const lead = error
-    ?? (onSoundcloud
-      ? 'Nothing here to dig through. Open any of these and it picks them up on its own:'
-      : 'Open one of these and it picks up whatever is on the page. The panel stays put and keeps up.');
+    ?? LEAD[service]
+    ?? 'Open one of these and it picks up whatever is on the page. The panel stays put and keeps up.';
+
+  const works = service ? WORKS_ON[service] : null;
 
   return (
     // The measure belongs to the prose, not to the section. Capping the whole
@@ -48,7 +83,7 @@ export function Guide({ onSoundcloud, running, error }) {
     <section className="pt-7">
       <p className="m-0 mb-4.5 max-w-[46ch] text-[15px] leading-normal">{lead}</p>
 
-      {!error && !onSoundcloud && (
+      {!error && !works && (
         <div className="grid gap-2.5">
           {SITES.map((s) => (
             <button key={s.url} type="button" onClick={() => openSite(s.url)}
@@ -75,15 +110,10 @@ export function Guide({ onSoundcloud, running, error }) {
         </div>
       )}
 
-      {!error && onSoundcloud && (
+      {!error && works && (
         <ul className="m-0 p-0 list-none grid gap-2.5 font-mono text-[11px]
                        leading-[1.4] tracking-[.12em] uppercase">
-          {[
-            <>A playlist — <code className="font-mono bg-wash px-1.5 py-px tracking-[.06em]">/sets/…</code></>,
-            'An album',
-            'An artist profile, or its tracks tab',
-            'A single track',
-          ].map((item, i) => <Bullet key={i}>{item}</Bullet>)}
+          {works.map((item, i) => <Bullet key={i}>{item}</Bullet>)}
         </ul>
       )}
 

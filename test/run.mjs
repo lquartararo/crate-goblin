@@ -752,6 +752,38 @@ await test('naming: splits artist from title only when corroborated', async () =
   assert.equal(h.title, 'Jean-Michel Jarre');
 });
 
+await test('paths: serviceOf names the site even where there is nothing to take', async () => {
+  const { serviceOf, classifyYouTube, classify } = await import('../src/lib/paths.js');
+
+  // The whole point: pages both classifiers reject, on sites we support. This
+  // is what tells the empty state to explain the site rather than offer to
+  // send you to one you are already looking at.
+  for (const url of [
+    'https://www.youtube.com/',
+    'https://www.youtube.com/feed/subscriptions',
+    'https://www.youtube.com/@someartist',
+    'https://m.youtube.com/',
+  ]) {
+    assert.equal(classifyYouTube(url), null, `${url} is not downloadable`);
+    assert.equal(serviceOf(url), 'youtube', `${url} is still youtube`);
+  }
+
+  for (const url of ['https://soundcloud.com/feed', 'https://soundcloud.com/discover']) {
+    assert.equal(classify(url), null, `${url} is not downloadable`);
+    assert.equal(serviceOf(url), 'soundcloud', `${url} is still soundcloud`);
+  }
+
+  assert.equal(serviceOf('https://youtu.be/abc123'), 'youtube');
+  assert.equal(serviceOf('https://www.soundcloud.com/user'), 'soundcloud');
+
+  // Neither, and in particular not a lookalike host that merely ends with one.
+  assert.equal(serviceOf('https://example.com/'), null);
+  assert.equal(serviceOf('https://notyoutube.com/watch?v=abc'), null);
+  assert.equal(serviceOf('https://soundcloud.com.evil.test/user'), null);
+  assert.equal(serviceOf('nonsense'), null);
+  assert.equal(serviceOf(null), null);
+});
+
 await test('paths: youtube urls classify separately from soundcloud', async () => {
   const { classifyYouTube, classify } = await import('../src/lib/paths.js');
 

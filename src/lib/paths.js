@@ -59,6 +59,8 @@ export function crateKind(pathname) {
   return parts.length === 3 && parts[1] === 'sets' ? 'playlist' : 'profile';
 }
 
+const YT_HOST = /(^|\.)youtube\.com$|(^|\.)youtu\.be$/;
+
 /**
  * The same question for YouTube.
  *
@@ -74,7 +76,7 @@ export function crateKind(pathname) {
 export function classifyYouTube(url) {
   let u;
   try { u = new URL(url); } catch { return null; }
-  if (!/(^|\.)youtube\.com$|(^|\.)youtu\.be$/.test(u.hostname)) return null;
+  if (!YT_HOST.test(u.hostname)) return null;
 
   if (u.hostname.endsWith('youtu.be')) return u.pathname.length > 1 ? 'track' : null;
   if (u.pathname === '/playlist' && u.searchParams.get('list')) return 'crate';
@@ -89,6 +91,27 @@ export function classify(url) {
     if (hostname !== 'soundcloud.com' && hostname !== 'www.soundcloud.com') return null;
     if (isTrackPath(pathname)) return 'track';
     if (isCratePath(pathname)) return 'crate';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which service a URL belongs to, whether or not the page is one we can use.
+ *
+ * Distinct from classify() and classifyYouTube(), which both answer "is there
+ * something here to download" and return null for a home page, a channel or a
+ * feed. Knowing you are on YouTube but not on a video is what lets the empty
+ * state say so, instead of offering to send you to a site you are already on.
+ *
+ * @returns {'soundcloud'|'youtube'|null}
+ */
+export function serviceOf(url) {
+  try {
+    const { hostname } = new URL(url);
+    if (/^(www\.)?soundcloud\.com$/.test(hostname)) return 'soundcloud';
+    if (YT_HOST.test(hostname)) return 'youtube';
     return null;
   } catch {
     return null;
