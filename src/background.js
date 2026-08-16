@@ -651,6 +651,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // chrome.runtime's messaging subset, which is why the probe worked from here
   // and the download did not from there. The port lives in the worker and
   // progress is relayed back.
+  // SoundCloud renders its generated sets into the page and serves no API for
+  // them that anything here can address: /resolve 404s, and /system-playlists
+  // wants a urn the URL does not carry. The page already has the answer, so it
+  // gets asked for it.
+  if (msg.type === 'page:hydration') {
+    (async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return sendResponse(null);
+      const [out] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: 'MAIN',   // __sc_hydration is the page's own global
+        func: () => {
+          const blocks = globalThis.__sc_hydration ?? [];
+          const hit = blocks.find((b) => Array.isArray(b?.data?.tracks));
+          if (!hit) return null;
+          const d = hit.data;
+          return {
+            title: d.title ?? null,
+            isAlbum: Boolean(d.is_album),
+            // Often stubs carrying only an id; the caller hydrates them.
+            tracks: d.tracks.map((t) => (typeof t === 'number' ? { id: t } : { id: t.id, ...t })),
+          };
+        },
+      }).catch(() => [null]);
+      sendResponse(out?.result ?? null);
+    })();
+    return true;
+  }
+
   if (msg.type === 'lucida:release') {
     releaseLucidaTab();
     return false;

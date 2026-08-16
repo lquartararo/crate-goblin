@@ -28,13 +28,15 @@ const Figure = ({ value, label }) => (
  *
  * An empty chart on a fresh install is worse than the space it fills: it looks
  * like a feature that is broken rather than one that has not started. Nothing
- * was recorded before this shipped either, so every install begins empty.
+ * was recorded before 0.18.0 either, so every install begins empty no matter how
+ * long it has been in use — and the first track is enough to draw. Waiting for
+ * three made a working feature look like a missing one for a week.
  */
 export function Stats() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    readLog().then((log) => setData(log.length >= 3 ? summarize(log, WEEKS) : null));
+    readLog().then((log) => setData(log.length ? summarize(log, WEEKS) : null));
   }, []);
 
   if (!data) return null;

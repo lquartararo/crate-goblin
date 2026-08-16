@@ -144,10 +144,25 @@ export function systemPlaylistUrn(pageUrl) {
 
 // Fetch a playlist/set/user page and return fully-hydrated track objects.
 export async function loadTracks(pageUrl) {
-  const urn = systemPlaylistUrn(pageUrl);
-  const data = urn
-    ? await call(`/system-playlists/${urn}`)
-    : await resolve(pageUrl);
+  // Generated sets are read off the page rather than fetched. /resolve 404s on
+  // them and /system-playlists/:urn wants a urn the URL does not contain — the
+  // permalink in the address bar is not it, which is what the 404 on
+  // soundcloud:system-playlists:personalized-tracks::… was saying. Every one of
+  // them is personalised, so there is no public example to work the real urn out
+  // from either. The page is served with the playlist already in it.
+  if (systemPlaylistUrn(pageUrl)) {
+    const page = await chrome.runtime.sendMessage({ type: 'page:hydration' }).catch(() => null);
+    if (!page?.tracks?.length) {
+      throw new Error('could not read this set from the page — try reloading it');
+    }
+    return {
+      title: page.title ?? 'Selection',
+      album: page.isAlbum ? page.title : null,
+      tracks: await hydrate(page.tracks),
+    };
+  }
+
+  const data = await resolve(pageUrl);
 
   if (data.kind === 'track') return [data];
 

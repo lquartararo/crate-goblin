@@ -195,8 +195,15 @@ function mountCrateButton() {
   }
 
   // The hero bar is the one with no track of its own.
-  const bar = [...document.querySelectorAll('.listenEngagement__actions, .soundActions')]
-    .find((b) => !trackUrlFor(b));
+  const bars = [...document.querySelectorAll('.listenEngagement__actions, .soundActions')];
+  // SoundCloud's generated sets caption themselves "Based on <track>" with a
+  // real track permalink sitting right beside the hero bar, so the walk up from
+  // that bar finds a track and the page ends up with every bar looking like a
+  // track's. Falling back to the first hero-class bar rather than giving up: it
+  // is the big engagement bar under the artwork, and `.soundActions` — the
+  // per-track one — is deliberately not in the fallback.
+  const bar = bars.find((b) => !trackUrlFor(b))
+    ?? document.querySelector('.listenEngagement__actions');
   if (!bar) return;
 
   const btn = makeButton(CRATE_BTN, label, (e) => openPanel(e.currentTarget));
