@@ -1,4 +1,4 @@
-# SoundCloud Crate
+# Crate Goblin
 
 A browser extension that triages a SoundCloud playlist in one pass instead of
 making you open sixty tracks one at a time.
