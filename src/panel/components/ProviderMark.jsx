@@ -20,8 +20,12 @@ const MARKS = {
     ink: [
       // bars, ascending toward the cloud
       [1, 9, 1, 3], [3, 8, 1, 4], [5, 6, 1, 6], [7, 5, 1, 7],
-      // the cloud, crowned in two steps — one step read as a slab with a notch
-      [11, 4, 3, 1], [10, 5, 5, 1], [9, 6, 7, 6],
+      // The cloud, crowned in two steps — one step read as a slab with a notch.
+      // It ends at column 14, not 15: the lattice has no bleed, so a run that
+      // reaches the last column sits flush against the canvas edge and reads as
+      // artwork that got cut off. Column 8 stays empty for the same reason in
+      // the other direction, keeping the bars off the cloud.
+      [11, 4, 2, 1], [10, 5, 4, 1], [9, 6, 6, 6],
     ],
     knockout: [],
   },
