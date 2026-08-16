@@ -169,9 +169,14 @@ export function Row({ row, job, crateTitle }) {
       </div>
 
       <Status job={job} crateTitle={crateTitle} />
-      {busy && (
+      {/* Stays for as long as the row does. Gating this on `working` alone made
+          it disappear the moment the download finished, which is a full linger
+          plus dissolve before the row itself goes — so a finished row sat there
+          with the bar already gone. Held at full instead, and the dither mask
+          takes it away along with everything else. */}
+      {(busy || job?.done) && (
         <Meter
-          progress={job.progress ?? null}
+          progress={busy ? (job.progress ?? null) : 1}
           className="absolute left-0 bottom-0 h-1.5 col-span-full"
         />
       )}

@@ -53,7 +53,7 @@ async function downloadOne(url) {
 
   const row = triage(tracks, { album: Array.isArray(result) ? null : result.album }).rows[0];
   if (!row) throw new Error('could not read that track');
-  if (row.previewOnly) throw new Error('Go+ preview only — sign in for the full track');
+  if (row.previewOnly) throw new Error('SoundCloud only offered a 30 second preview');
 
   const res = await downloadRow(row, tracks[0], await currentOptions(), () => {});
 

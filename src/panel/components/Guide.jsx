@@ -9,8 +9,8 @@
 export function Guide({ onSoundcloud, running, error }) {
   const lead = error
     ?? (onSoundcloud
-      ? 'This page has no track list. The panel follows you — open any of these and it will pick it up automatically:'
-      : 'Open SoundCloud in this tab. The panel stays docked and follows you as you navigate.');
+      ? 'Nothing here to dig through. Open any of these and it picks them up on its own:'
+      : 'Open SoundCloud in this tab. This stays put and keeps up.');
 
   return (
     <section className="pt-7 max-w-[46ch]">

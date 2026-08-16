@@ -100,7 +100,7 @@ const LOSSLESS = /^(wav|aiff?|flac)$/i;
  * told people to sign in and retry, which is advice that cannot work and sends
  * someone hunting for a problem on their own end.
  */
-const drmMessage = () => 'DRM-protected — no plain stream offered';
+const drmMessage = () => 'DRM-protected, no plain stream offered';
 
 /**
  * Bring a directly-acquired file (artist original, or whatever a gate handed
@@ -483,7 +483,7 @@ async function route(row, track, opts = {}, onProgress) {
     // and the message can't tell which, so it shouldn't imply it can.
     //
     // Not a dead end either way: orLucida catches this and tries elsewhere.
-    throw new Error('Only a ~30s preview was offered');
+    throw new Error('SoundCloud only offered a 30 second preview');
   }
 
   // Known DRM — route out before trying anything here.

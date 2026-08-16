@@ -43,6 +43,12 @@ export function useJobs() {
   // deleted out from under its second run.
   const timers = useRef(new Map());
 
+  // Every id this run has touched, and which of them have landed. Sets rather
+  // than counters so a repeated progress message can't inflate either one.
+  const seen = useRef(new Set());
+  const finished = useRef(new Set());
+  const [counts, setCounts] = useState({ seen: 0, done: 0 });
+
   const setStatus = useCallback((id, text, cls = 'working', extra = {}) => {
     setJobs((prev) => {
       const next = new Map(prev);
@@ -95,12 +101,20 @@ export function useJobs() {
       .then((res) => {
         if (!live || !res?.ok) return;
         setJobs(new Map(res.jobs.map(({ id, ...j }) => [id, j])));
-        for (const j of res.jobs) if (j.done && j.cls === 'ok') expiring(j.id);
+        for (const j of res.jobs) {
+          seen.current.add(j.id);
+          if (j.done) finished.current.add(j.id);
+          if (j.done && j.cls === 'ok') expiring(j.id);
+        }
+        setCounts({ seen: seen.current.size, done: finished.current.size });
       })
       .catch(() => {});
 
     const onMessage = (msg) => {
       if (msg?.type !== 'queue:progress') return;
+      seen.current.add(msg.id);
+      if (msg.patch?.done) finished.current.add(msg.id);
+      setCounts({ seen: seen.current.size, done: finished.current.size });
       setJobs((prev) => {
         const next = new Map(prev);
         next.set(msg.id, { ...(prev.get(msg.id) ?? {}), ...msg.patch });
@@ -118,14 +132,25 @@ export function useJobs() {
   const active = list.filter((j) => j.inFlight).length;
   const pending = list.filter((j) => j.inFlight || !j.done).length;
 
-  // Whole-queue progress. Counts a finished row as done rather than tracking
-  // bytes: the formats differ wildly in size, so byte-weighting would make a
-  // crate of AIFFs look stalled next to the same crate as MP3s.
-  const settled = list.filter((j) => j.done).length;
-  const total = list.length;
-  const fraction = total
-    ? (settled + list.reduce((n, j) => n + (j.inFlight ? (j.progress ?? 0) : 0), 0)) / total
-    : 0;
+  // Whole-queue progress, counted against every track this run rather than
+  // against the rows currently on screen.
+  //
+  // Deriving it from the visible list made the bar go backwards: a finished row
+  // leaves after its linger, which drops it out of *both* the numerator and the
+  // denominator, so 3/10 became 2/9 became 1/8 and the fill slid left while
+  // work was still finishing. The tally only grows, so the bar only advances,
+  // and it reaches full exactly when the last track lands.
+  const inflight = list.reduce((n, j) => n + (j.inFlight ? (j.progress ?? 0) : 0), 0);
+  const fraction = counts.seen ? Math.min(1, (counts.done + inflight) / counts.seen) : 0;
+
+  // Start the next run from zero. Safe here because the bar is only shown while
+  // something is pending, so there is nothing on screen to jump.
+  useEffect(() => {
+    if (pending > 0 || counts.seen === 0) return;
+    seen.current.clear();
+    finished.current.clear();
+    setCounts({ seen: 0, done: 0 });
+  }, [pending, counts.seen]);
 
   /** Hand a batch to the offscreen document. Resolves once it's accepted. */
   const run = useCallback(async (rows, tracks, opts, crateTitle) => {
