@@ -260,9 +260,9 @@ export function Panel() {
                 {pending} in queue{active ? ` · ${active} running` : ''}
               </span>
             )}
-            {/* Why the quality is what it is. "128k because you're signed out"
-                and "128k because that's all there was" look identical in a
-                downloads folder, and only one of them is worth acting on. */}
+            {/* Only the tier that explains a difference you can hear. Reporting
+                a signed-out session described SoundCloud's stream quality, so on
+                a page it does not apply to it answered a question nobody asked. */}
             {session?.goPlus && <span className="opacity-70">Go+ · 256k</span>}
             {needsBridge && bridge && (
               <span className={bridge.ok ? 'opacity-70' : 'text-err'}>
