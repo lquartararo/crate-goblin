@@ -47,7 +47,17 @@ export function useJobs() {
   // than counters so a repeated progress message can't inflate either one.
   const seen = useRef(new Set());
   const finished = useRef(new Set());
+  // How each one ended, so the run can report what it actually brought back
+  // rather than just how many it touched.
+  const outcomes = useRef(new Map());
+  // Did this panel actually watch something run? Resyncing from the offscreen
+  // document repopulates the tally with work that finished before the panel was
+  // even open, and reporting a haul for that would fire the summary every time
+  // you opened the panel until the rows aged out.
+  const sawWork = useRef(false);
   const [counts, setCounts] = useState({ seen: 0, done: 0 });
+  // Set once a whole run drains, read by the panel, cleared by it.
+  const [haul, setHaul] = useState(null);
 
   const setStatus = useCallback((id, text, cls = 'working', extra = {}) => {
     setJobs((prev) => {
@@ -103,7 +113,7 @@ export function useJobs() {
         setJobs(new Map(res.jobs.map(({ id, ...j }) => [id, j])));
         for (const j of res.jobs) {
           seen.current.add(j.id);
-          if (j.done) finished.current.add(j.id);
+          if (j.done) { finished.current.add(j.id); outcomes.current.set(j.id, j.cls ?? 'ok'); }
           if (j.done && j.cls === 'ok') expiring(j.id);
         }
         setCounts({ seen: seen.current.size, done: finished.current.size });
@@ -113,7 +123,11 @@ export function useJobs() {
     const onMessage = (msg) => {
       if (msg?.type !== 'queue:progress') return;
       seen.current.add(msg.id);
-      if (msg.patch?.done) finished.current.add(msg.id);
+      if (msg.patch?.inFlight) sawWork.current = true;
+      if (msg.patch?.done) {
+        finished.current.add(msg.id);
+        outcomes.current.set(msg.id, msg.patch.cls ?? 'ok');
+      }
       setCounts({ seen: seen.current.size, done: finished.current.size });
       setJobs((prev) => {
         const next = new Map(prev);
@@ -143,12 +157,34 @@ export function useJobs() {
   const inflight = list.reduce((n, j) => n + (j.inFlight ? (j.progress ?? 0) : 0), 0);
   const fraction = counts.seen ? Math.min(1, (counts.done + inflight) / counts.seen) : 0;
 
-  // Start the next run from zero. Safe here because the bar is only shown while
-  // something is pending, so there is nothing on screen to jump.
+  // A run just drained. Report what it brought back, then start the next one
+  // from zero. Safe to reset here because the bar only shows while something is
+  // pending, so there is nothing on screen to jump.
   useEffect(() => {
     if (pending > 0 || counts.seen === 0) return;
+
+    // Nothing ran while this panel was watching, so there is nothing to report.
+    // Still clear the tally, so the next real run starts from zero.
+    if (!sawWork.current) {
+      seen.current.clear();
+      finished.current.clear();
+      outcomes.current.clear();
+      setCounts({ seen: 0, done: 0 });
+      return;
+    }
+
+    const tally = { ok: 0, warn: 0, err: 0 };
+    for (const cls of outcomes.current.values()) {
+      if (cls === 'err') tally.err++;
+      else if (cls === 'warn') tally.warn++;
+      else tally.ok++;
+    }
+    setHaul(tally);
+
     seen.current.clear();
     finished.current.clear();
+    outcomes.current.clear();
+    sawWork.current = false;
     setCounts({ seen: 0, done: 0 });
   }, [pending, counts.seen]);
 
@@ -168,5 +204,5 @@ export function useJobs() {
     return { skipped: res?.skipped ?? 0 };
   }, []);
 
-  return { jobs, active, pending, fraction, run, setStatus, remove };
+  return { jobs, active, pending, fraction, run, setStatus, remove, haul, clearHaul: () => setHaul(null) };
 }

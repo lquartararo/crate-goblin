@@ -8,6 +8,8 @@ import { Row } from './components/Row.jsx';
 import { Wash } from './components/Wash.jsx';
 import { Meter } from './components/Meter.jsx';
 import { Goblin } from './components/Goblin.jsx';
+import { Haul } from './components/Haul.jsx';
+import { maskStyle, LEVELS } from './ditherMask.js';
 import { useCrate } from './state/useCrate.js';
 import { useJobs, loadDrmBlocked } from './state/useJobs.js';
 import { useSettings, useGateEmail } from './state/useSettings.js';
@@ -63,8 +65,43 @@ function CrateTitle({ title, tight }) {
 const COLLAPSE_AT = 90;
 const EXPAND_AT = 32;
 
+/**
+ * Resolve the panel out of the dither on open.
+ *
+ * A side panel appears the instant it is asked for, fully drawn, which is the
+ * one moment this interface still felt like browser chrome rather than
+ * something built. It cannot be preloaded — the document does not exist until
+ * the panel is opened — so it arrives the same way every row does instead.
+ */
+function useEntrance() {
+  const [level, setLevel] = useState(LEVELS - 1);
+
+  useEffect(() => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return setLevel(0);
+
+    let raf = 0;
+    const DURATION = 460;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      // Ease-out, so most of the panel is legible almost immediately and only
+      // the last cells take their time. Ease-in would read as a slow reveal.
+      const eased = 1 - Math.pow(1 - t, 3);
+      setLevel(Math.round((1 - eased) * (LEVELS - 1)));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Once clear, drop the mask entirely. Leaving it applied keeps every repaint
+  // on the compositor's masked path for the life of the panel.
+  return level > 0 ? maskStyle(level) : null;
+}
+
 export function Panel() {
   useSmoothScroll();
+  const entrance = useEntrance();
   const [tight, setTight] = useState(false);
 
   useEffect(() => {
@@ -84,7 +121,7 @@ export function Panel() {
   }, []);
 
   const { state, crate, error } = useCrate();
-  const { jobs, active, pending, fraction, run, setStatus } = useJobs();
+  const { jobs, active, pending, fraction, run, setStatus, haul, clearHaul } = useJobs();
   const { settings, set, opts } = useSettings();
   const [email, setEmail] = useGateEmail();
 
@@ -148,7 +185,7 @@ export function Panel() {
   const onSoundcloud = Boolean(crate.url?.startsWith('https://soundcloud.com/'));
 
   return (
-    <div className="relative px-10 pt-[34px] pb-18">
+    <div className="relative px-10 pt-[34px] pb-18" style={entrance ?? undefined}>
       {/* Total progress, pinned to the very top edge and spanning the full
           width. Above everything rather than below it: the queue scrolls, and a
           summary that scrolls away stops being a summary. */}
@@ -220,6 +257,8 @@ export function Panel() {
       {idle && !queue.length && (
         <Guide onSoundcloud={onSoundcloud} running={active} error={state === 'error' ? error : null} />
       )}
+
+      <Haul tally={haul} onDone={clearHaul} />
 
       {state === 'ready' && (
         <>
