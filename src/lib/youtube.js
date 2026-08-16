@@ -45,12 +45,24 @@ let client = null;
  * to nothing.
  */
 async function pageFetch(input, init) {
-  // Three shapes arrive here: a string, a URL, and a Request. Reading `.url`
-  // off a URL gives undefined, which chrome.scripting rejects outright as an
-  // unserializable argument rather than passing along as null.
+  // Three shapes arrive here: a string, a URL, and a Request.
+  //
+  // Getting this wrong is not obvious from the failure. An empty string handed
+  // to fetch() inside the page resolves to *the page itself*, so a POST lands
+  // on a YouTube watch page and comes back 405 Method Not Allowed — an error
+  // about the method, for a bug in the URL, reported against a blank address.
+  // So it is checked here, where the shape that caused it is still in scope.
   const url = typeof input === 'string' ? input
     : input instanceof URL ? input.href
-    : String(input?.url ?? input);
+    : typeof input?.url === 'string' ? input.url
+    : null;
+
+  if (!url || !/^https?:/i.test(url)) {
+    const shape = input === null ? 'null'
+      : input === undefined ? 'undefined'
+      : (input?.constructor?.name ?? typeof input);
+    throw new Error(`youtube: unusable request URL from a ${shape}: ${JSON.stringify(url)}`);
+  }
 
   const src = init ?? (input instanceof Request ? input : null);
   const method = src?.method ?? 'GET';
@@ -74,8 +86,13 @@ async function pageFetch(input, init) {
 
   const res = await chrome.runtime.sendMessage({ type: 'youtube:fetch', url, init: opts });
   if (!res?.ok) throw new Error(res?.reason ?? 'youtube request failed');
-  // Rebuilt as a Response because that is what the library expects back.
-  return new Response(res.body, { status: res.status });
+
+  // Rebuilt as a Response because that is what the library expects back. `url`
+  // is read-only on a constructed Response and stays empty, which is why their
+  // error messages had nothing to name — so it is put back deliberately.
+  const out = new Response(res.body, { status: res.status });
+  Object.defineProperty(out, 'url', { value: res.url ?? url });
+  return out;
 }
 
 async function innertube() {

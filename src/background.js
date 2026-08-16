@@ -647,7 +647,7 @@ async function youtubePageFetch(url, init) {
     func: async (u, i) => {
       try {
         const r = await fetch(u, { ...(i ?? {}), credentials: 'include' });
-        return { ok: true, status: r.status, body: await r.text() };
+        return { ok: true, status: r.status, url: r.url, body: await r.text() };
       } catch (e) {
         return { ok: false, reason: e?.message ?? String(e) };
       }
