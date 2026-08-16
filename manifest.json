@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Crate Goblin",
-  "version": "0.14.0",
-  "description": "It gets in, it takes the record. SoundCloud and YouTube, unlocked and tagged.",
+  "version": "0.15.0",
+  "description": "It gets in, it takes the record. SoundCloud, and anything yt-dlp can reach.",
   "permissions": [
     "downloads",
     "cookies",
@@ -11,7 +11,8 @@
     "scripting",
     "sidePanel",
     "offscreen",
-    "alarms"
+    "alarms",
+    "nativeMessaging"
   ],
   "side_panel": {
     "default_path": "src/panel/panel.html"
@@ -30,11 +31,7 @@
     "https://*.pumpyoursound.com/*",
     "https://*.droploud.com/*",
     "https://*.gaterush.me/*",
-    "https://*.lucida.to/*",
-    "https://*.youtube.com/*",
-    "https://*.googlevideo.com/*",
-    "https://youtubei.googleapis.com/*",
-    "https://jnn-pa.googleapis.com/*"
+    "https://*.lucida.to/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -96,5 +93,6 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkoh/ZFO8bUcIaZM5AmuDNSM/9oAa9Vo3jDghltWV4hgEL++JGpqmkmm8ZQjPmaIm7UUwGkhM1CGotetii7LtoNkAHxMoBzP9R+Gqzm1VB/u6KZsiv4Ee7SCpNvI6fzf/r/V1Lz9EOPZD0jy8fC0TM4+DIuSv7jiy0AbRUJluOyFebNc7OVIBK4T29LPhSm/a8w+1YvgjlCMWAbnsn0GaZSW41IMOJnZ47xyz0V4y0oYKV73J9wCpggPtj4aMWjcOQsXojmOXZGqaf4aCHu+9nG+1gRqJQ+y1I2XSWdpbAzAtO4ma6DYVKz19qp3jnFPHka2PSAtAWmLNHzdE9LgB7wIDAQAB"
 }

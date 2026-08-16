@@ -94,3 +94,15 @@ export function classify(url) {
     return null;
   }
 }
+
+/**
+ * A page the local downloader can take, when the extension itself cannot.
+ *
+ * Deliberately narrow. yt-dlp supports around 1800 sites and this could wave at
+ * all of them, but a button that appears everywhere and works sometimes is
+ * worse than one that appears where it is known to work.
+ */
+export function nativeTarget(url) {
+  const kind = classifyYouTube(url);
+  return kind ? { kind, source: 'native' } : null;
+}

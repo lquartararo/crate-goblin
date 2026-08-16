@@ -6,6 +6,7 @@ import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
 import { classify, classifyYouTube } from './lib/paths.js';
 import { currentSession } from './lib/session.js';
+import { probeBridge } from './lib/native.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -589,114 +590,6 @@ async function lucidaPageFetch(url, init) {
   return out.result;
 }
 
-// ------------------------------------------------------- youtube page proxy
-//
-// Same problem as lucida, different site. YouTube's InnerTube endpoint answers
-// `/youtubei/v1/player` with 403 when the request carries an extension origin,
-// so youtubei.js cannot talk to it directly no matter how correct the payload
-// is. Measured: 403 from the offscreen document, fine from a youtube.com page.
-//
-// So its requests run inside a YouTube tab. Usually there is already one — you
-// are on the video you just asked for — and otherwise one is opened in the
-// background and closed again.
-const YT_URL = 'https://www.youtube.com/';
-const YT_IDLE_MS = 45_000;
-
-let ytTab = null;
-let ytOpening = null;
-let ytIdle = null;
-
-async function ensureYouTubeTab() {
-  if (ytTab) {
-    const alive = await chrome.tabs.get(ytTab.id).catch(() => null);
-    if (alive) return ytTab;
-    ytTab = null;
-  }
-
-  // Prefer a tab the user already has open, and never close that one.
-  const existing = await chrome.tabs.query({ url: 'https://*.youtube.com/*' }).catch(() => []);
-  if (existing.length) {
-    ytTab = { id: existing[0].id, ours: false };
-    return ytTab;
-  }
-
-  ytOpening ??= (async () => {
-    const tab = await chrome.tabs.create({ url: YT_URL, active: false });
-    await waitForSettle(tab.id);
-    ytTab = { id: tab.id, ours: true };
-    return ytTab;
-  })().finally(() => { ytOpening = null; });
-
-  return ytOpening;
-}
-
-function touchYouTubeTab() {
-  clearTimeout(ytIdle);
-  ytIdle = setTimeout(() => {
-    if (ytTab?.ours) chrome.tabs.remove(ytTab.id).catch(() => {});
-    ytTab = null;
-  }, YT_IDLE_MS);
-}
-
-/**
- * Fetch bytes from inside a YouTube page.
- *
- * Separate from the JSON proxy because the result has to cross runtime
- * messaging, which is JSON — so it goes as base64 and pays a third in size.
- * Only used when a direct fetch has already failed, since for a whole track
- * that overhead is real.
- */
-async function youtubePageBytes(url) {
-  const tab = await ensureYouTubeTab();
-  touchYouTubeTab();
-
-  const [out] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: async (u) => {
-      try {
-        const r = await fetch(u, { credentials: 'include' });
-        if (!r.ok) return { ok: false, reason: `media ${r.status}` };
-        const buf = new Uint8Array(await r.arrayBuffer());
-        // Chunked: String.fromCharCode on a multi-megabyte spread blows the
-        // argument limit and throws RangeError.
-        let bin = '';
-        for (let i = 0; i < buf.length; i += 0x8000) {
-          bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-        }
-        return { ok: true, type: r.headers.get('content-type') ?? '', b64: btoa(bin) };
-      } catch (e) {
-        return { ok: false, reason: e?.message ?? String(e) };
-      }
-    },
-    args: [url],
-  });
-
-  if (!out?.result?.ok) throw new Error(out?.result?.reason ?? 'youtube page fetch failed');
-  return out.result;
-}
-
-async function youtubePageFetch(url, init) {
-  const tab = await ensureYouTubeTab();
-  touchYouTubeTab();
-
-  const [out] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: async (u, i) => {
-      try {
-        const r = await fetch(u, { ...(i ?? {}), credentials: 'include' });
-        return { ok: true, status: r.status, url: r.url, body: await r.text() };
-      } catch (e) {
-        return { ok: false, reason: e?.message ?? String(e) };
-      }
-    },
-    args: [url, init ?? null],
-  });
-
-  if (!out?.result) throw new Error('youtube page did not respond');
-  if (!out.result.ok) throw new Error(out.result.reason);
-  return out.result;
-}
-
 // Only one offscreen document may exist at a time, and creating it races with
 // itself if two clicks land together — hold the in-flight promise so the second
 // caller waits on the first rather than throwing.
@@ -740,6 +633,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // its module-preload helper, which injects a <link> and therefore touches
   // `document` — and a service worker has no DOM, so the whole handler died
   // with "document is not defined" before it reached any of this.
+  // The panel asks so it can say whether the local downloader is there, rather
+  // than letting the first YouTube track fail with something cryptic.
+  if (msg.type === 'bridge:probe') {
+    probeBridge().then(sendResponse, () => sendResponse({ ok: false, reason: 'probe failed' }));
+    return true;
+  }
+
   if (msg.type === 'session:get') {
     currentSession().then(
       sendResponse,
@@ -769,21 +669,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.type === 'youtube:bytes') {
-    youtubePageBytes(msg.url).then(
-      (r) => sendResponse({ ok: true, ...r }),
-      (e) => sendResponse({ ok: false, reason: e?.message ?? String(e) }),
-    );
-    return true;
-  }
 
-  if (msg.type === 'youtube:fetch') {
-    youtubePageFetch(msg.url, msg.init).then(
-      (r) => sendResponse({ ok: true, ...r }),
-      (e) => sendResponse({ ok: false, reason: e?.message ?? String(e) }),
-    );
-    return true;
-  }
 
   if (msg.type === 'lucida:fetch') {
     lucidaPageFetch(msg.url, msg.init).then(

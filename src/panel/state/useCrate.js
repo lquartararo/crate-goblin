@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { loadTracks } from '../../lib/api.js';
 import { triage } from '../../lib/triage.js';
-import { isCratePath, classifyYouTube } from '../../lib/paths.js';
+import { BUCKET } from '../../lib/triage.js';
+import { isCratePath, nativeTarget } from '../../lib/paths.js';
 
 const CACHE_TTL = 5 * 60 * 1000;
 const cacheKey = (url) => `crate:${url.split('?')[0]}`;
@@ -33,10 +34,41 @@ async function cachedOrLoad(url) {
   return loadTracks(url);
 }
 
-const onYouTube = (url) => Boolean(classifyYouTube(url));
+/**
+ * A row for a page the local downloader handles.
+ *
+ * There is no API call here and deliberately no metadata beyond the tab's own
+ * title: yt-dlp reads the real title, artist and artwork at download time and
+ * writes them into the file. Duplicating that guesswork in the panel would only
+ * create a second answer that disagrees with the one on disk.
+ */
+async function nativeCrate(url) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  const title = (tab?.title ?? 'YouTube').replace(/\s*[-–]\s*YouTube\s*$/i, '').trim();
+
+  const row = {
+    id: `native:${url}`,
+    source: 'native',
+    title,
+    rawTitle: title,
+    artist: '',
+    artistDeclared: false,
+    isrc: null, genre: null, album: null, year: null,
+    durationMs: 0,
+    permalink: url,
+    artwork: null,
+    license: null,
+    previewOnly: false,
+    drmOnly: false,
+    downloadCount: 0,
+    bucket: BUCKET.STREAM,
+    kind: 'native',
+    url: null,
+  };
+  return { title, rows: [row] };
+}
 
 const triageable = (url) => {
-  if (onYouTube(url)) return true;
   try {
     const u = new URL(url);
     return u.hostname.endsWith('soundcloud.com') && isCratePath(u.pathname);
@@ -61,6 +93,15 @@ export function useCrate() {
   const load = useCallback(async () => {
     const url = await resolvePageUrl();
 
+    // Pages the bridge handles come first: they are not SoundCloud and the
+    // triage rules would reject them.
+    if (url && nativeTarget(url)) {
+      const { title, rows } = await nativeCrate(url);
+      setCrate({ url, title, rows, tracks: new Map(rows.map((r) => [r.id, r])) });
+      setState('ready');
+      return;
+    }
+
     if (!url || !triageable(url)) {
       setCrate({ title: '', rows: [], tracks: new Map(), url });
       setState('idle');
@@ -68,21 +109,6 @@ export function useCrate() {
     }
 
     try {
-      // YouTube rows arrive already in triage's shape, because there is no
-      // equivalent of buckets or gates to work out — everything there is one
-      // kind of thing.
-      if (onYouTube(url)) {
-        const { loadYouTube } = await import('../../lib/youtube.js');
-        const yt = await loadYouTube(url);
-        setCrate({
-          url,
-          title: yt.title,
-          rows: yt.rows,
-          tracks: new Map(yt.rows.map((r) => [r.id, r])),
-        });
-        setState('ready');
-        return;
-      }
 
       const result = await cachedOrLoad(url);
       const list = Array.isArray(result) ? result : result.tracks;

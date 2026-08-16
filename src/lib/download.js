@@ -15,7 +15,7 @@ import { BUCKET, isAutomatable } from './triage.js';
 import { host } from './host.js';
 import { currentSession } from './session.js';
 import { fetchTrack } from './lucida.js';
-import { fetchFromYouTube, fetchRowMedia } from './youtube.js';
+import { downloadNative } from './native.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
 // slash in a title will silently nest it into a folder you didn't ask for.
@@ -444,41 +444,18 @@ async function grabViaLucida(row, opts, onProgress) {
  * reason SoundCloud wouldn't serve the track is the useful one, and "lucida
  * needs a browser check" on top of it would bury it.
  */
-async function grabViaYouTube(row, opts, onProgress) {
-  onProgress?.({ phase: 'youtube' });
-  const query = [row.artist, row.title].filter(Boolean).join(' ').trim();
-
-  const { blob, title, videoId } = await fetchFromYouTube(query, {
-    durationMs: row.durationMs,
-    onProgress: (p) => onProgress?.({ phase: 'youtube', stage: p?.stage }),
-  });
-  if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`YouTube file too small (${blob.size} B)`);
-
-  // Opus in a WebM container. finalize decodes it like anything else, and the
-  // requested format still wins.
-  const out = await finalize(blob, 'webm', row, opts, onProgress);
-  const differs = title && row.title
-    && title.trim().toLowerCase() !== row.title.trim().toLowerCase();
-
-  return {
-    via: `youtube → ${out.ext}${differs ? ` · matched "${title}"` : ''}`,
-    bytes: out.bytes,
-    matchedFrom: `youtube:${videoId}`,
-  };
-}
 
 /**
  * Everything after SoundCloud, in order of how good the result is.
  *
- * lucida first, because a match there is a real commercial master. YouTube
- * last, because it is roughly the quality of the stream we could not get, and
- * is worth taking only when the alternative is nothing at all.
+ * One fallback, because there is one worth having: a lucida match is a real
+ * commercial master, often lossless.
  */
 async function orLucida(attempt, row, opts, onProgress) {
   try {
     return await attempt();
   } catch (e) {
-    if (e.lucidaTried || !row.permalink || row.source === 'youtube') throw e;
+    if (e.lucidaTried || !row.permalink) throw e;
 
     onProgress?.({ phase: 'fallback', reason: `${e.message} — looking elsewhere` });
     try {
@@ -489,13 +466,7 @@ async function orLucida(attempt, row, opts, onProgress) {
       if (inner.name === 'LucidaChallenge') throw inner;
     }
 
-    try {
-      return await grabViaYouTube(row, opts, onProgress);
-    } catch {
-      // Report why SoundCloud refused, not why the last resort did. The first
-      // failure is the one that explains the situation.
-      throw e;
-    }
+    throw e;
   }
 }
 
@@ -526,30 +497,19 @@ export async function downloadRow(row, track, opts = {}, onProgress) {
 async function route(row, track, opts = {}, onProgress) {
   const { mode = 'best', gatedPolicy = 'auto' } = opts;
 
-  // A YouTube row came from YouTube and has nothing to do with any of the
-  // below. Routed first so it never walks a chain whose every step would fail
-  // on an id that isn't a SoundCloud one.
-  if (row.source === 'youtube') {
-    onProgress?.({ phase: 'youtube' });
-    const { blob, ext, kind } = await fetchRowMedia(row, {
-      want: opts.media === 'video' ? 'video' : 'audio',
-      onProgress: (p) => onProgress?.({ phase: 'youtube', stage: p?.stage }),
-    });
-    if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`file too small (${blob.size} B)`);
-
-    // Video is kept whole. Running it through finalize would decode the audio
-    // and write that instead, which is the opposite of what was asked for.
-    if (kind === 'video') {
-      await save(blob, filename(row, ext, opts.folder));
-      return { via: `youtube → ${ext} (video)`, bytes: blob.size };
-    }
-
-    // Audio, or a muxed file taken because no audio-only stream existed. Either
-    // way the decoder ignores any picture, so the chosen format still wins.
-    const out = await finalize(blob, ext, row, opts, onProgress);
-    const note = kind === 'muxed' ? ' (from a muxed stream)' : '';
-    return { via: `youtube → ${out.ext}${note}`, bytes: out.bytes };
+  // Anything yt-dlp handles goes straight out to the bridge, and the file never
+  // comes back through here — Chrome caps a native message at 1MB, so yt-dlp
+  // writes it and reports the path. Conversion and tagging happen out there
+  // too, which is why this returns rather than falling through to finalize.
+  if (row.source === 'native') {
+    onProgress?.({ phase: 'native' });
+    const { name } = await downloadNative(
+      { url: row.permalink, format: opts.container ?? 'mp3', folder: opts.folder },
+      (text) => onProgress?.({ phase: 'native', text }),
+    );
+    return { via: `yt-dlp → ${name.split('.').pop()}`, bytes: 0, savedAs: name };
   }
+
 
   if (row.previewOnly) {
     // SoundCloud offered only snipped transcodings. A truncated file in a crate
@@ -584,13 +544,9 @@ async function route(row, track, opts = {}, onProgress) {
     try {
       return await grabViaLucida(row, opts, onProgress);
     } catch (e) {
-      try {
-        return await grabViaYouTube(row, opts, onProgress);
-      } catch {
-        // Tagged so the wrapper doesn't walk the same two fallbacks again.
-        e.lucidaTried = true;
-        throw e;
-      }
+      // Tagged so the wrapper doesn't try lucida a second time.
+      e.lucidaTried = true;
+      throw e;
     }
   }
 

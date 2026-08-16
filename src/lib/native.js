@@ -1,0 +1,86 @@
+// Talking to the local downloader.
+//
+// Everything the extension cannot do itself happens out here. YouTube stopped
+// serving media URLs to any browser context, and the token that unlocks them
+// needs an eval that Manifest V3 forbids in an extension page — so the work goes
+// to yt-dlp, which is maintained by people who do nothing else and updates
+// itself monthly when YouTube shifts.
+//
+// The audio never crosses this channel. Chrome caps a native message at 1MB and
+// a track is many times that, so yt-dlp writes the file and only the path comes
+// back. That also means the conversion and tagging happen out there, which is
+// why a YouTube download is not routed through finalize().
+
+const HOST = 'sh.crate.goblin';
+
+// Answered once per worker life. The bridge is either installed or it is not,
+// and asking on every track would spawn a process to learn nothing.
+let probed = null;
+
+/** @returns {Promise<{ok: boolean, version: string|null, reason?: string}>} */
+export async function probeBridge() {
+  probed ??= new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+
+    try {
+      chrome.runtime.sendNativeMessage(HOST, { type: 'probe' }, (res) => {
+        // lastError is how "not installed" arrives, and it must be read inside
+        // the callback or Chrome logs it as unchecked.
+        const err = chrome.runtime.lastError;
+        if (err) return done({ ok: false, version: null, reason: err.message });
+        done({ ok: Boolean(res?.ok), version: res?.version ?? null,
+               reason: res?.ok ? undefined : 'yt-dlp is not installed' });
+      });
+    } catch (e) {
+      done({ ok: false, version: null, reason: e?.message ?? String(e) });
+    }
+
+    // A host that never answers would otherwise hang the first download
+    // forever, with the row saying nothing.
+    setTimeout(() => done({ ok: false, version: null, reason: 'the bridge did not answer' }), 8000);
+  });
+  return probed;
+}
+
+export function forgetBridge() {
+  probed = null;
+}
+
+/**
+ * Hand a URL to yt-dlp and wait for the file.
+ *
+ * A long-lived port rather than a single message, because a download reports
+ * progress and can outlast any request timeout.
+ */
+export function downloadNative({ url, format, folder }, onProgress) {
+  return new Promise((resolve, reject) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative(HOST);
+    } catch (e) {
+      return reject(new Error(`the downloader is not installed (${e?.message ?? e})`));
+    }
+
+    let finished = false;
+    const finish = (fn, arg) => {
+      if (finished) return;
+      finished = true;
+      try { port.disconnect(); } catch { /* already gone */ }
+      fn(arg);
+    };
+
+    port.onMessage.addListener((msg) => {
+      if (msg?.type === 'progress') onProgress?.(msg.text);
+      else if (msg?.type === 'done') finish(resolve, { path: msg.path, name: msg.name });
+      else if (msg?.type === 'error') finish(reject, new Error(msg.reason ?? 'download failed'));
+    });
+
+    port.onDisconnect.addListener(() => {
+      const err = chrome.runtime.lastError;
+      finish(reject, new Error(err?.message ?? 'the downloader stopped unexpectedly'));
+    });
+
+    port.postMessage({ type: 'download', url, format, folder });
+  });
+}
