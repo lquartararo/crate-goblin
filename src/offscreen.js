@@ -81,7 +81,12 @@ async function downloadOne(url) {
 // own thread and more of them made the UI stutter. The work is out of process
 // now — these slots mostly wait on a socket — so the ceiling is SoundCloud's
 // patience rather than ours.
-const scPool = createLimiter(6);
+// Back down from six. Moving the work out of the browser did not raise
+// SoundCloud's tolerance — six tracks each resolving five transcodings is
+// thirty api-v2 calls at once, and the ones that get refused simply drop out of
+// yt-dlp's format list. That is where a 96k file comes from: not a track that
+// only had 96k, but a track whose better transcodings failed to resolve.
+const scPool = createLimiter(3);
 // Starts at three and finds its own ceiling. A fixed one is a guess in both
 // directions: three was too many for one crate and one is too few for a service
 // that is fine most days. It halves on a refusal, holds every worker behind the

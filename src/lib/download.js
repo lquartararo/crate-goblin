@@ -131,7 +131,11 @@ async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
     // yt-dlp has no session of its own. The extension is already inside one, so
     // it lends the header — rather than yt-dlp reading Chrome's cookie jar,
     // which on macOS raises a keychain prompt.
-    const token = await getOAuthToken().catch(() => null);
+    // Not swallowed into null any more. Losing the token costs you the premium
+    // stream silently, which is the worst way for it to fail — one retry, then
+    // continue anonymously rather than failing the track outright.
+    let token = await getOAuthToken().catch(() => null);
+    if (!token) token = await getOAuthToken().catch(() => null);
 
     const res = await chrome.runtime.sendMessage({
       type: 'native:download',

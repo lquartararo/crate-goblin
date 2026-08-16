@@ -45,7 +45,27 @@ export async function getClientId({ force = false } = {}) {
 // The extension runs inside your logged-in session, so we can lift the OAuth
 // token straight from the cookie jar. This is what unlocks Go+ 256k AAC and
 // artist-enabled original files — both 401 for anonymous callers.
-export const getOAuthToken = () => host.oauthToken();
+// Read once and kept, rather than asked for per track.
+//
+// Every download used to make its own round trip to the worker for this, and
+// the caller swallowed a failure into "no token" — so under a batch, when the
+// worker is busiest, a message that did not come back quietly downgraded that
+// track to the anonymous stream. That is exactly the symptom: 256k on some
+// tracks and 160k on others from one signed-in session, with nothing on screen
+// to say why.
+//
+// Short-lived because signing out should take effect without reloading, and
+// because a stale token is worth less than one round trip.
+let cachedToken = null;
+let cachedAt = 0;
+const TOKEN_TTL_MS = 60_000;
+
+export async function getOAuthToken() {
+  if (cachedToken && Date.now() - cachedAt < TOKEN_TTL_MS) return cachedToken;
+  const token = await host.oauthToken();
+  if (token) { cachedToken = token; cachedAt = Date.now(); }
+  return token;
+}
 
 async function authHeaders() {
   const token = await getOAuthToken();
