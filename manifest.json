@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Crate Goblin",
-  "version": "0.11.0",
-  "description": "It gets in, it takes the record. Whole SoundCloud playlists, unlocked and tagged.",
+  "version": "0.12.0",
+  "description": "It gets in, it takes the record. SoundCloud and YouTube, unlocked and tagged.",
   "permissions": [
     "downloads",
     "cookies",
@@ -42,7 +42,9 @@
   "content_scripts": [
     {
       "matches": [
-        "https://soundcloud.com/*"
+        "https://soundcloud.com/*",
+        "https://www.youtube.com/*",
+        "https://music.youtube.com/*"
       ],
       "js": [
         "src/content.js"

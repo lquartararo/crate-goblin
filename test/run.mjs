@@ -752,6 +752,29 @@ await test('naming: splits artist from title only when corroborated', async () =
   assert.equal(h.title, 'Jean-Michel Jarre');
 });
 
+await test('paths: youtube urls classify separately from soundcloud', async () => {
+  const { classifyYouTube, classify } = await import('../src/lib/paths.js');
+
+  assert.equal(classifyYouTube('https://www.youtube.com/watch?v=abc123'), 'track');
+  assert.equal(classifyYouTube('https://youtu.be/abc123'), 'track');
+  assert.equal(classifyYouTube('https://www.youtube.com/playlist?list=PL123'), 'crate');
+  assert.equal(classifyYouTube('https://music.youtube.com/watch?v=abc123'), 'track');
+
+  // A video *inside* a playlist is still one video. Treating it as the playlist
+  // would queue everything because someone clicked a track from a mix.
+  assert.equal(classifyYouTube('https://www.youtube.com/watch?v=abc&list=PL123'), 'track');
+
+  // Not things to download.
+  assert.equal(classifyYouTube('https://www.youtube.com/'), null);
+  assert.equal(classifyYouTube('https://www.youtube.com/feed/subscriptions'), null);
+  assert.equal(classifyYouTube('https://notyoutube.com/watch?v=abc'), null);
+  assert.equal(classifyYouTube('nonsense'), null);
+
+  // The two classifiers must not answer for each other's sites.
+  assert.equal(classifyYouTube('https://soundcloud.com/user/track'), null);
+  assert.equal(classify('https://www.youtube.com/watch?v=abc'), null);
+});
+
 // ---------------------------------------------------------------- report
 
 console.log(results.join('\n'));

@@ -4,7 +4,7 @@
 
 import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
-import { classify } from './lib/paths.js';
+import { classify, classifyYouTube } from './lib/paths.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -23,7 +23,7 @@ scheduleUpdateChecks();
 const BADGE = { crate: '\u2022', track: '\u2022' };
 
 async function markTab(tabId, url) {
-  const kind = url ? classify(url) : null;
+  const kind = url ? (classify(url) ?? classifyYouTube(url)) : null;
   try {
     await chrome.action.setBadgeText({ tabId, text: kind ? BADGE[kind] ?? '' : '' });
     if (kind) {

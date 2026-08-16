@@ -18,6 +18,7 @@
 // during a set.
 
 import { Innertube, UniversalCache } from 'youtubei.js/web';
+import { BUCKET } from './triage.js';
 
 // Anything shorter is a clip or an intro, anything much longer is a mix or a
 // full set uploaded under a track's name. Neither is the record.
@@ -121,4 +122,112 @@ export async function fetchFromYouTube(query, { durationMs, onProgress, signal }
     title: info?.basic_info?.title ?? picked.title?.text ?? query,
     videoId: picked.id,
   };
+}
+
+// --------------------------------------------------------------- as a source
+//
+// YouTube as a place you browse, not only as a last resort behind SoundCloud.
+// Rows come out in the same shape triage produces, so the queue, the filename
+// builder, the tagger and the panel all take them without knowing where they
+// came from.
+
+const videoId = (url) => {
+  try {
+    const u = new URL(url);
+    if (u.hostname.endsWith('youtu.be')) return u.pathname.slice(1) || null;
+    return u.searchParams.get('v');
+  } catch { return null; }
+};
+
+const listId = (url) => {
+  try { return new URL(url).searchParams.get('list'); } catch { return null; }
+};
+
+/**
+ * One row, in triage's shape.
+ *
+ * `source: 'youtube'` is what routing reads. Without it a YouTube row would
+ * walk the SoundCloud chain and fail on the first API call.
+ */
+function toRow(v) {
+  const id = v?.id ?? v?.video_id;
+  if (!id) return null;
+
+  const secs = seconds(v) ?? 0;
+  const channel = v?.author?.name ?? v?.channel?.name ?? v?.short_byline_text?.text ?? '';
+  const title = v?.title?.text ?? v?.title ?? '';
+
+  return {
+    id: `yt:${id}`,
+    source: 'youtube',
+    title,
+    rawTitle: title,
+    // A channel is not an artist, but for music uploads it is usually the
+    // closest thing available, and naming.js will pull a real credit out of an
+    // "Artist - Title" video title where there is one.
+    artist: channel,
+    artistDeclared: false,
+    isrc: null,
+    genre: null,
+    album: null,
+    year: null,
+    durationMs: secs * 1000,
+    permalink: `https://www.youtube.com/watch?v=${id}`,
+    artwork: v?.thumbnails?.at?.(-1)?.url ?? v?.best_thumbnail?.url ?? null,
+    license: null,
+    previewOnly: false,
+    drmOnly: false,
+    downloadCount: 0,
+    // Nothing here is gated or free in SoundCloud's sense; it is all one kind.
+    bucket: BUCKET.STREAM,
+    kind: 'youtube',
+    url: null,
+  };
+}
+
+/**
+ * Load a YouTube watch or playlist URL into rows.
+ *
+ * Shaped like loadTracks so useCrate can treat both sites the same.
+ */
+export async function loadYouTube(pageUrl) {
+  const yt = await innertube();
+  const list = listId(pageUrl);
+  const isPlaylist = new URL(pageUrl).pathname === '/playlist' && list;
+
+  if (isPlaylist) {
+    const pl = await yt.getPlaylist(list);
+    const rows = (pl?.videos ?? []).map(toRow).filter(Boolean);
+    return { title: pl?.info?.title ?? 'YouTube playlist', album: null, rows };
+  }
+
+  const id = videoId(pageUrl);
+  if (!id) throw new Error('no video in that URL');
+
+  const info = await yt.getBasicInfo(id);
+  const b = info?.basic_info ?? {};
+  const row = toRow({
+    id,
+    title: b.title,
+    author: { name: b.author },
+    duration: { seconds: b.duration },
+    thumbnails: b.thumbnail,
+  });
+  if (!row) throw new Error('could not read that video');
+  return { title: b.title ?? 'YouTube', album: null, rows: [row] };
+}
+
+/** Fetch audio for a row this module produced. */
+export async function fetchRowAudio(row, { onProgress, signal } = {}) {
+  const yt = await innertube();
+  const id = String(row.id).replace(/^yt:/, '');
+
+  onProgress?.({ stage: 'resolving' });
+  const info = await yt.getBasicInfo(id);
+  const format = bestAudio(info);
+  if (!format) throw new Error('YouTube offered no audio-only stream');
+
+  const res = await fetch(format.decipher(yt.session.player), { signal });
+  if (!res.ok) throw new Error(`YouTube audio ${res.status}`);
+  return res.blob();
 }

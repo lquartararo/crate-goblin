@@ -15,7 +15,7 @@ import { BUCKET, isAutomatable } from './triage.js';
 import { host } from './host.js';
 import { currentSession } from './session.js';
 import { fetchTrack } from './lucida.js';
-import { fetchFromYouTube } from './youtube.js';
+import { fetchFromYouTube, fetchRowAudio } from './youtube.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
 // slash in a title will silently nest it into a folder you didn't ask for.
@@ -478,7 +478,7 @@ async function orLucida(attempt, row, opts, onProgress) {
   try {
     return await attempt();
   } catch (e) {
-    if (e.lucidaTried || !row.permalink) throw e;
+    if (e.lucidaTried || !row.permalink || row.source === 'youtube') throw e;
 
     onProgress?.({ phase: 'fallback', reason: `${e.message} — looking elsewhere` });
     try {
@@ -525,6 +525,21 @@ export async function downloadRow(row, track, opts = {}, onProgress) {
 
 async function route(row, track, opts = {}, onProgress) {
   const { mode = 'best', gatedPolicy = 'auto' } = opts;
+
+  // A YouTube row came from YouTube and has nothing to do with any of the
+  // below. Routed first so it never walks a chain whose every step would fail
+  // on an id that isn't a SoundCloud one.
+  if (row.source === 'youtube') {
+    onProgress?.({ phase: 'youtube' });
+    const blob = await fetchRowAudio(row, {
+      onProgress: (p) => onProgress?.({ phase: 'youtube', stage: p?.stage }),
+    });
+    if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`file too small (${blob.size} B)`);
+    // Opus in WebM. finalize decodes it like anything else and the requested
+    // container still wins.
+    const out = await finalize(blob, 'webm', row, opts, onProgress);
+    return { via: `youtube → ${out.ext}`, bytes: out.bytes };
+  }
 
   if (row.previewOnly) {
     // SoundCloud offered only snipped transcodings. A truncated file in a crate

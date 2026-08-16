@@ -1,4 +1,4 @@
-// Injects controls into SoundCloud.
+// Injects controls into SoundCloud and YouTube.
 //
 //   Every track card, anywhere  →  "Get", downloads that one track, no panel
 //   Crate pages (playlist/album/profile)  →  "Download playlist" / "Download tracks"
@@ -19,7 +19,7 @@
 // would be a syntax error. With a bundler that reverses — Rollup resolves
 // dynamic imports using `import.meta.url`, which is *itself* module-only syntax,
 // so the emitted file failed to parse and none of the buttons appeared.
-import { isTrackPath, isCratePath, crateKind } from './lib/paths.js';
+import { isTrackPath, isCratePath, crateKind, classifyYouTube } from './lib/paths.js';
 
 const CRATE_BTN = 'sc-crate-btn';
 const TRACK_BTN = 'sc-crate-get';
@@ -125,6 +125,38 @@ async function quickDownload(btn, url) {
 
 // ------------------------------------------------------------ crate button
 
+// YouTube's own controls, mounted in its action row.
+//
+// Kept separate from the SoundCloud path rather than generalised: the two sites
+// share no markup, and a single "find the action bar" helper that satisfied
+// both would be a selector nobody could reason about. The button label is the
+// only thing they have in common.
+const YT_BAR = [
+  '#top-level-buttons-computed',        // watch page action row
+  'ytd-playlist-header-renderer #top-level-buttons-computed',
+];
+
+function mountYouTubeButton() {
+  const kind = classifyYouTube(location.href);
+  const existing = document.getElementById(CRATE_BTN);
+
+  if (!kind) return void existing?.remove();
+
+  const label = kind === 'crate' ? 'Download playlist' : 'Get';
+  if (existing?.isConnected) {
+    if (existing.textContent !== label) existing.textContent = label;
+    return;
+  }
+
+  const bar = YT_BAR.map((sel) => document.querySelector(sel)).find(Boolean);
+  if (!bar) return;
+
+  const btn = makeButton(CRATE_BTN, label, (e) =>
+    kind === 'crate' ? openPanel(e.currentTarget) : quickDownload(e.currentTarget, location.href));
+  btn.style.marginLeft = '8px';
+  bar.appendChild(btn);
+}
+
 function mountCrateButton() {
   const onCrate = isCratePath(location.pathname);
   const existing = document.getElementById(CRATE_BTN);
@@ -177,8 +209,12 @@ function scheduleMount() {
   pending = true;
   requestAnimationFrame(() => {
     pending = false;
-    mountTrackButtons();
-    mountCrateButton();
+    if (location.hostname.endsWith('youtube.com')) {
+      mountYouTubeButton();
+    } else {
+      mountTrackButtons();
+      mountCrateButton();
+    }
   });
 }
 

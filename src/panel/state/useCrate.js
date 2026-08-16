@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { loadTracks } from '../../lib/api.js';
 import { triage } from '../../lib/triage.js';
-import { isCratePath } from '../../lib/paths.js';
+import { isCratePath, classifyYouTube } from '../../lib/paths.js';
 
 const CACHE_TTL = 5 * 60 * 1000;
 const cacheKey = (url) => `crate:${url.split('?')[0]}`;
@@ -33,7 +33,10 @@ async function cachedOrLoad(url) {
   return loadTracks(url);
 }
 
+const onYouTube = (url) => Boolean(classifyYouTube(url));
+
 const triageable = (url) => {
+  if (onYouTube(url)) return true;
   try {
     const u = new URL(url);
     return u.hostname.endsWith('soundcloud.com') && isCratePath(u.pathname);
@@ -65,6 +68,22 @@ export function useCrate() {
     }
 
     try {
+      // YouTube rows arrive already in triage's shape, because there is no
+      // equivalent of buckets or gates to work out — everything there is one
+      // kind of thing.
+      if (onYouTube(url)) {
+        const { loadYouTube } = await import('../../lib/youtube.js');
+        const yt = await loadYouTube(url);
+        setCrate({
+          url,
+          title: yt.title,
+          rows: yt.rows,
+          tracks: new Map(yt.rows.map((r) => [r.id, r])),
+        });
+        setState('ready');
+        return;
+      }
+
       const result = await cachedOrLoad(url);
       const list = Array.isArray(result) ? result : result.tracks;
       // The playlist title becomes an album tag only when SoundCloud says it's

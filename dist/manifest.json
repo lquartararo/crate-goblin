@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Crate Goblin",
-  "version": "0.11.0",
-  "description": "It gets in, it takes the record. Whole SoundCloud playlists, unlocked and tagged.",
+  "version": "0.12.0",
+  "description": "It gets in, it takes the record. SoundCloud and YouTube, unlocked and tagged.",
   "permissions": [
     "downloads",
     "cookies",
@@ -42,10 +42,12 @@
   "content_scripts": [
     {
       "js": [
-        "assets/content.js-loader-AwnjP6sW.js"
+        "assets/content.js-loader-BtqQ0DrC.js"
       ],
       "matches": [
-        "https://soundcloud.com/*"
+        "https://soundcloud.com/*",
+        "https://www.youtube.com/*",
+        "https://music.youtube.com/*"
       ],
       "run_at": "document_idle"
     },
@@ -97,11 +99,13 @@
   "web_accessible_resources": [
     {
       "matches": [
-        "https://soundcloud.com/*"
+        "https://music.youtube.com/*",
+        "https://soundcloud.com/*",
+        "https://www.youtube.com/*"
       ],
       "resources": [
-        "assets/paths.CeMVpvdU.js",
-        "assets/content.js.BBzO-nVX.js"
+        "assets/paths.B7pVkhCu.js",
+        "assets/content.js.Bdn-lrhn.js"
       ],
       "use_dynamic_url": false
     },

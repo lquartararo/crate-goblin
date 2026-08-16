@@ -59,6 +59,29 @@ export function crateKind(pathname) {
   return parts.length === 3 && parts[1] === 'sets' ? 'playlist' : 'profile';
 }
 
+/**
+ * The same question for YouTube.
+ *
+ * Separate from the SoundCloud rules rather than folded into them: the two
+ * sites agree on nothing structurally, and the one thing that reads as a
+ * playlist on both is spelled completely differently.
+ *
+ * Only `list=` counts as a crate. A watch URL that carries one is a video being
+ * played *in the context of* a playlist, which is not the same as asking for
+ * the playlist, and treating it as one would queue 200 tracks because someone
+ * clicked a video from a mix.
+ */
+export function classifyYouTube(url) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (!/(^|\.)youtube\.com$|(^|\.)youtu\.be$/.test(u.hostname)) return null;
+
+  if (u.hostname.endsWith('youtu.be')) return u.pathname.length > 1 ? 'track' : null;
+  if (u.pathname === '/playlist' && u.searchParams.get('list')) return 'crate';
+  if (u.pathname === '/watch' && u.searchParams.get('v')) return 'track';
+  return null;
+}
+
 /** Same question, for a full URL rather than a path. */
 export function classify(url) {
   try {
