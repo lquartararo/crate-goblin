@@ -45,7 +45,20 @@ const ACCEPT_TEXT = /\b(accept|allow|agree|got it|ok)\b/i;
 
 // Never click these whatever they say — legal pages, and any consent control
 // that isn't an explicit decline.
-const NEVER_CLICK = '[href*="/privacy"],[href*="/legal"],[href*="/dmca"],[href*="/terms"]';
+const NEVER_CLICK = '[href*="/privacy"],[href*="/legal"],[href*="/dmca"],[href*="/terms"]'
+  // Stores are attempted now, because plenty of them are a free download with
+  // the word "buy" on it — "BUY = FREE DL" is a real title on a real crate.
+  // That means this script can land on a checkout, and it must not be able to
+  // start one. Anything that reads as money is untouchable, whatever else it
+  // also says.
+  + ',[href*="/cart"],[href*="/checkout"],[href*="/payment"],[href*="paypal"]'
+  + ',[href*="/subscribe"],input[type="email"],input[type="tel"]';
+
+// The same guard on text, because a checkout button is usually a <button> with
+// no href to match on. A free download that only appears behind one of these is
+// a download this tool does not get; that is the correct outcome.
+const PURCHASE_TEXT =
+  /\b(buy now|add to (cart|bag)|checkout|check out|pay|purchase|subscribe|pre-?order)\b/i;
 
 const AUDIO_EXT = /\.(mp3|wav|aiff?|flac|m4a|zip)(\?|$)/i;
 // Four gates run concurrently, so every second here is multiplied. A gate that
@@ -72,7 +85,14 @@ const enabled = (el) =>
   el.getAttribute('aria-disabled') !== 'true' &&
   !/\b(disabled|inactive|locked)\b/.test(el.className || '');
 
-const usable = (el) => el && visible(el) && enabled(el) && !el.closest(NEVER_CLICK);
+const usable = (el) =>
+  el && visible(el) && enabled(el)
+  && !el.closest(NEVER_CLICK)
+  // Text as well as selector: a checkout control is usually a <button> with
+  // nothing in an href to match on.
+  && !PURCHASE_TEXT.test((el.textContent ?? '').trim())
+  && !PURCHASE_TEXT.test(el.getAttribute('aria-label') ?? '')
+  && !PURCHASE_TEXT.test(el.value ?? '');
 
 // ------------------------------------------------------------------ finders
 

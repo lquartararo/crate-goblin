@@ -49,6 +49,21 @@ const STORE_HOSTS = [
   'itunes.apple.com', 'music.apple.com', 'amazon.com', 'google.com',
 ];
 
+// Plain redirect shorteners. They are a hop, not a destination — the tab
+// follows them and whatever they land on is the real gate. Listed so the badge
+// says something rather than "unknown", not because they change the routing.
+const SHORTENER_HOSTS = [
+  'bit.ly', 'tinyurl.com', 'cutt.ly', 'rb.gy', 'shorturl.at', 't.co',
+  'ow.ly', 'is.gd', 'buff.ly', 'rebrand.ly', 'shorturl.com',
+];
+
+// Ad-walls. Also a hop, but one that pays the artist by holding you in front of
+// adverts, so the tab lands on a countdown and a set of decoy buttons rather
+// than on a download control. The automation gives up on these by design: it
+// will not click through an interstitial whose whole purpose is to be clicked
+// through, and the stream fallback is the honest outcome.
+const ADWALL_HOSTS = ['linkvertise.com', 'link-to.net', 'up-to-down.net', 'adf.ly', 'ouo.io'];
+
 // Smart-link redirectors. They resolve to a store or a streaming service, so
 // they behave like stores rather than gates — seen in the wild on label
 // releases, where every "purchase_url" was a smarturl.it or iTunes link.
@@ -68,14 +83,12 @@ function gateKind(purchaseUrl) {
     return 'unknown';
   }
   if (hostMatches(host, GATE_HOSTS)) return 'gate';
+  if (hostMatches(host, SHORTENER_HOSTS)) return 'gate';   // a hop to one
+  if (hostMatches(host, ADWALL_HOSTS)) return 'adwall';
   if (hostMatches(host, STORE_HOSTS)) return 'store';
   if (hostMatches(host, SMARTLINK_HOSTS)) return 'smartlink';
   return 'unknown';
 }
-
-/** Whether unlock automation could plausibly help. Buying can't be automated. */
-export const isAutomatable = (row) =>
-  row.bucket === BUCKET.GATED && row.kind !== 'store' && row.kind !== 'smartlink';
 
 export function classify(track) {
   // A free original beats a gate — if the artist already gave it away, take it.

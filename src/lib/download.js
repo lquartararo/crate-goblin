@@ -21,7 +21,7 @@
 // lucida paths still handle blobs, and MV3 workers have no URL.createObjectURL.
 
 import { getOAuthToken } from './api.js';
-import { BUCKET, isAutomatable } from './triage.js';
+import { BUCKET } from './triage.js';
 import { host } from './host.js';
 import { fetchTrack } from './lucida.js';
 
@@ -371,15 +371,18 @@ async function route(row, track, opts = {}, onProgress) {
   if (row.bucket === BUCKET.FREE) return viaBridge(row, opts, onProgress, 'original');
 
   if (row.bucket === BUCKET.GATED) {
-    // A store or smart-link isn't a gate with a stubborn button — it's a
-    // checkout. Running the unlock automation at one wastes seconds and could
-    // never succeed, so take the stream and leave the link queued for you.
-    if (gatedPolicy === 'auto' && !isAutomatable(row)) {
-      onProgress?.({ phase: 'fallback', reason: `${row.kind} link — not automatable` });
-      const res = await viaBridge(row, opts, onProgress);
-      return { ...res, via: `${res.via} (${row.kind} link queued)`, gateFailed: true };
-    }
-
+    // Stores are attempted too now. They used to short-circuit straight to the
+    // stream on the grounds that a checkout is not a gate with a stubborn
+    // button — true of a Beatport release, and wrong often enough to matter:
+    // "BUY = FREE DL" is a real title, and Bandcamp's name-your-price is a
+    // store link to a free file. Trying costs a tab and a few seconds, and the
+    // fallback is the same stream it would have taken anyway.
+    //
+    // What makes this safe is on the other side: unlock.js will not click a
+    // control that reads as money — cart, checkout, pay, subscribe, pre-order —
+    // so it can take a free download off a store page and cannot begin buying
+    // anything. A file that only appears past a real checkout is one this tool
+    // does not get, which is the right outcome.
     if (gatedPolicy === 'auto') {
       try {
         return await grabViaGate(row, opts, onProgress);

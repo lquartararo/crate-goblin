@@ -40,7 +40,7 @@ globalThis.URL.createObjectURL = () => 'blob:mock';
 globalThis.URL.revokeObjectURL = () => {};
 
 const { pool } = await import('../src/lib/pool.js');
-const { classify, isPreviewOnly, isAutomatable, BUCKET } = await import('../src/lib/triage.js');
+const { classify, isPreviewOnly, BUCKET } = await import('../src/lib/triage.js');
 
 // ------------------------------------------------------------------ pool
 
@@ -83,14 +83,28 @@ await test('triage: hypeddit is a gate, bandcamp is a store', () => {
   assert.equal(classify({ purchase_url: 'https://x.bandcamp.com/track/a' }).kind, 'store');
 });
 
-await test('triage: itunes and smart-links are not unlock-able gates', () => {
-  // Seen on a real label EP: every purchase_url was smarturl.it or iTunes.
-  // Running the unlock automation at a checkout page can only ever waste time.
-  assert.equal(classify({ purchase_url: 'https://itunes.apple.com/album/x' }).kind, 'store');
-  assert.equal(classify({ purchase_url: 'https://smarturl.it/abc' }).kind, 'smartlink');
-  assert.equal(isAutomatable({ bucket: BUCKET.GATED, kind: 'store' }), false);
-  assert.equal(isAutomatable({ bucket: BUCKET.GATED, kind: 'smartlink' }), false);
-  assert.equal(isAutomatable({ bucket: BUCKET.GATED, kind: 'gate' }), true);
+await test('triage: shorteners are gates, ad-walls and stores are named', async () => {
+  const { classify, BUCKET } = await import('../src/lib/triage.js');
+
+  const kindOf = (url) => classify({ purchase_url: url }).kind;
+
+  // A shortener is a hop, not a destination — the tab follows it and whatever
+  // it lands on is the real gate, so it is worth attempting.
+  assert.equal(kindOf('https://bit.ly/abc123'), 'gate');
+  assert.equal(kindOf('https://hypeddit.com/track/abc'), 'gate');
+
+  // An ad-wall is a hop that exists to be sat through. Named so the row can say
+  // so rather than reporting a generic failure.
+  assert.equal(kindOf('https://linkvertise.com/12345/track'), 'adwall');
+
+  // Stores keep their own name. They are attempted now, but the badge should
+  // still say where the link goes.
+  assert.equal(kindOf('https://artist.bandcamp.com/track/x'), 'store');
+  assert.equal(kindOf('https://smarturl.it/xyz'), 'smartlink');
+
+  // Every one of them is still a gated row — the kind decides the label and the
+  // message, never whether the track gets queued.
+  assert.equal(classify({ purchase_url: 'https://linkvertise.com/1/x' }).bucket, BUCKET.GATED);
 });
 
 await test('triage: SNIP policy alone must not mark preview-only', () => {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "crate goblin",
-  "version": "0.20.2",
+  "version": "0.21.0",
   "description": "It gets in, it takes the record. SoundCloud, and anything yt-dlp can reach.",
   "permissions": [
     "downloads",
@@ -66,7 +66,7 @@
     },
     {
       "js": [
-        "assets/unlock.js.CxRs1nEV.js"
+        "assets/unlock.js.Bcb30Eof.js"
       ],
       "matches": [
         "https://*.hypeddit.com/*",
@@ -120,7 +120,7 @@
       ],
       "resources": [
         "assets/suppress.js.C9MUu88D.js",
-        "assets/unlock.js.CxRs1nEV.js"
+        "assets/unlock.js.Bcb30Eof.js"
       ],
       "use_dynamic_url": false
     }
