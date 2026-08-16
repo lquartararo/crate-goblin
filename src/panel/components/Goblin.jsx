@@ -1,27 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { BAYER4, clamp01, prefersReducedMotion } from '../dither-kit.js';
 import { levels } from '../palette.js';
-
-// The mark, as cells rather than a picture.
-//
-// Same 16x16 lattice the toolbar icon is cut from and the same one icons.js
-// draws its glyphs on, so the brand mark and the interface come out of one
-// system instead of an illustration being pasted next to a pixel-art UI.
-//
-//   #  silhouette      o  knockout (eyes, teeth)      .  halftone ground
-const CELLS = [
-  '................', '.#............#.', '..##........##..', '..###......###..',
-  '..##..####..##..', '..##.######.##..', '...##########...', '...##########...',
-  '...##########...', '...##########...', '...##########...', '...##########...',
-  '...#oooooooo#...', '...#o#oo#o#o#...', '....########....', '......#oo#......',
-];
-
-const N = CELLS.length;
-
-// Sockets in cell coordinates. Three wide so a one-cell pupil has somewhere to
-// go: at the original two, "looking left" and "looking right" were the same
-// picture.
-const EYES = [{ x: 4, y: 8, w: 3, h: 2 }, { x: 9, y: 8, w: 3, h: 2 }];
+import { CELLS, N, EYES } from '../../lib/goblin.js';
 
 /**
  * @param {number} size    rendered edge in CSS px

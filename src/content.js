@@ -20,11 +20,23 @@
 // dynamic imports using `import.meta.url`, which is *itself* module-only syntax,
 // so the emitted file failed to parse and none of the buttons appeared.
 import { isTrackPath, isCratePath, crateKind, nativeTarget } from './lib/paths.js';
+import { markDataUrl } from './lib/goblin.js';
 
 const CRATE_BTN = 'sc-crate-btn';
 const TRACK_BTN = 'sc-crate-get';
+// The text lives in its own element. Status updates used to assign
+// btn.textContent, which replaces every child — with a mark in there that would
+// delete it on the first "Getting…" and never bring it back.
+const LABEL = 'sc-crate-label';
+
+// Drawn once for the page, however many buttons end up on it.
+let MARK = null;
+const markUrl = () => (MARK ??= markDataUrl('#f6edf0'));
 
 const BTN_STYLE = [
+  'display:inline-flex',
+  'align-items:center',
+  'gap:7px',
   'padding:6px 13px',
   'font:500 12px/1 inherit',
   'letter-spacing:.04em',
@@ -43,7 +55,23 @@ function makeButton(id, label, onClick) {
   btn.className = id;
   btn.type = 'button';
   btn.style.cssText = BTN_STYLE;
-  btn.textContent = label;
+
+  // Identity without a per-instance cost: one shared image, no listeners, no
+  // paint loop. The panel's goblin watches the cursor because there is exactly
+  // one of it on a surface you opened; fifty of them on a playlist page would
+  // be fifty pointermove handlers competing with the site you are listening to.
+  const mark = document.createElement('span');
+  mark.style.cssText = [
+    'width:16px', 'height:16px', 'flex:none',
+    `background:url(${markUrl()}) center/contain no-repeat`,
+    'image-rendering:pixelated',
+  ].join(';');
+
+  const text = document.createElement('span');
+  text.className = LABEL;
+  text.textContent = label;
+
+  btn.append(mark, text);
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();   // cards are clickable; don't navigate on our click
@@ -55,12 +83,13 @@ function makeButton(id, label, onClick) {
 // Brief inline feedback. These buttons are the only surface these actions have,
 // so failing silently would leave nothing at all to go on.
 function flash(btn, text, revertAfter = 2600) {
-  btn.dataset.label ??= btn.textContent;
-  btn.textContent = text;
+  const el = btn.querySelector(`.${LABEL}`) ?? btn;
+  el.dataset.label ??= el.textContent;
+  el.textContent = text;
   btn.style.opacity = '.75';
   clearTimeout(btn._t);
   btn._t = setTimeout(() => {
-    btn.textContent = btn.dataset.label;
+    el.textContent = el.dataset.label;
     btn.style.opacity = '1';
   }, revertAfter);
 }
@@ -160,7 +189,8 @@ function mountCrateButton() {
   // that used to sit here would have left it reading "Download playlist" on a
   // page that isn't one.
   if (existing?.isConnected) {
-    if (existing.textContent !== label) existing.textContent = label;
+    const text = existing.querySelector(`.${LABEL}`);
+    if (text && text.textContent !== label) text.textContent = label;
     return;
   }
 
