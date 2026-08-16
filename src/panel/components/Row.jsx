@@ -45,7 +45,7 @@ function Badge({ row }) {
 }
 
 function Status({ job, crateTitle }) {
-  if (!job) return <div className="min-w-0" />;
+  if (!job) return <div className="min-w-0 col-span-2 @[27rem]:col-span-1" />;
 
   // A job belonging to another crate says so — otherwise a row that's
   // mysteriously already downloading reads as a bug rather than as the queue
@@ -54,7 +54,10 @@ function Status({ job, crateTitle }) {
 
   return (
     <div className={cn(
-      'flex items-start justify-end gap-2 min-w-0 text-right',
+      // Own line at narrow widths, back beside the title once there's room.
+      'col-span-2 @[27rem]:col-span-1',
+      'flex items-start gap-2 min-w-0',
+      'justify-start text-left @[27rem]:justify-end @[27rem]:text-right',
       'font-mono text-[11px] leading-[1.3] tracking-[.05em] uppercase tabular-nums',
       job.cls === 'ok' && 'text-accent',
       job.cls === 'warn' && 'text-warn',
@@ -125,7 +128,12 @@ export function Row({ row, job, crateTitle }) {
       // wrap — size the column to that one unbreakable token and squeeze the
       // title to a word per line. minmax(0,…) is what actually permits a grid
       // item to shrink below its content; `1fr` alone does not.
-      'grid-cols-[64px_minmax(0,1fr)_minmax(0,30%)]',
+      // Container query, not a viewport one: this is a side panel the user
+      // drags to whatever width they like, and the viewport never changes with
+      // it. Narrow gets two columns with the status on its own line; there is
+      // no width at which a title and a signed-URL error both fit beside each
+      // other, and squeezing them produced a word per line.
+      'grid-cols-[56px_minmax(0,1fr)] @[27rem]:grid-cols-[64px_minmax(0,1fr)_minmax(0,30%)]',
       'border-b-[1.5px] border-ink/15 transition-colors duration-150',
       // Zebra and hover as fills, never inversion: flipping the whole row would
       // change the artwork outline and badge colour on every mouse move.
@@ -135,7 +143,7 @@ export function Row({ row, job, crateTitle }) {
       // below close the gap rather than jumping. No opacity fade: the mask is
       // doing the disappearing, and a fade on top of it just muddies the cells.
       leaving && 'overflow-hidden !p-0 !max-h-0 !border-transparent',
-      'max-h-[140px] transition-[max-height,padding] duration-[620ms] ease-in',
+      'max-h-[440px] transition-[max-height,padding] duration-[620ms] ease-in',
     )} style={mask ?? undefined}>
       <Thumb src={row.artwork} alt="" />
 
@@ -157,7 +165,6 @@ export function Row({ row, job, crateTitle }) {
             </a>
           )}
           {row.previewOnly && <span>Go+ preview only</span>}
-          {row.drmOnly && <span className="text-err">DRM only</span>}
         </div>
       </div>
 

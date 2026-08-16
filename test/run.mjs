@@ -502,8 +502,11 @@ await test('download: the computed filename is what reaches save()', async () =>
   );
   assert.equal(
     saves[0],
-    // publisher_metadata.artist, not the account name — see metaFromRow.
-    'Pablito Mix - Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix, City Lights & HSTN Cumbiaton Remix).mp3',
+    // The remix rule in naming.js moved the credit: Pablito Mix is named inside
+    // the version parenthetical, so they are the remixer and the act is the one
+    // before the dash. Previously this filed under "Pablito Mix - Skrillex &
+    // Damian Marley - …", which buried the record under its remixer.
+    'Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix, City Lights & HSTN Cumbiaton Remix).mp3',
   );
 });
 
@@ -702,15 +705,27 @@ await test('naming: splits artist from title only when corroborated', async () =
     splitArtistTitle({ title: 'Pablito Mix - Vidrado', artist: 'Pablito Mix', artistDeclared: true }),
     { artist: 'Pablito Mix', title: 'Vidrado', split: 'prefix' });
 
-  // Declared artist that isn't a prefix: BOTH left alone. On a remix the
-  // declared artist is the remixer and the title credits the original, which is
-  // already right — rewriting it would lose the original credit.
+  // Declared artist named inside a version parenthetical is the REMIXER, so the
+  // act is whoever sits before the dash. This is the Beatport/Rekordbox
+  // convention and it's what you'd actually search the library for.
   assert.deepEqual(
     splitArtistTitle({
       title: 'Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix Remix)',
       artist: 'Pablito Mix', artistDeclared: true }),
-    { artist: 'Pablito Mix',
-      title: 'Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix Remix)', split: null });
+    { artist: 'Skrillex & Damian Marley',
+      title: 'Make It Bun Dem (Pablito Mix Remix)', split: 'remix' });
+
+  // But only when it's the *declared* artist in there. Someone else's name in
+  // the remix bracket means the declared artist really is the act.
+  assert.deepEqual(
+    splitArtistTitle({ title: 'Artist X - Track (Other Guy Remix)',
+                       artist: 'Artist X', artistDeclared: true }),
+    { artist: 'Artist X', title: 'Track (Other Guy Remix)', split: 'prefix' });
+
+  // "feat." is not a version marker, so it must not trigger the remix path.
+  const feat = splitArtistTitle({
+    title: 'Real Act - Song (feat. Guest Name)', artist: 'Guest Name', artistDeclared: true });
+  assert.notEqual(feat.split, 'remix', 'a feature credit is not a remix credit');
 
   // Nothing declared: read the credit out of the title.
   assert.deepEqual(

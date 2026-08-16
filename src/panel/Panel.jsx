@@ -11,8 +11,10 @@ import { Goblin } from './components/Goblin.jsx';
 import { useCrate } from './state/useCrate.js';
 import { useJobs, loadDrmBlocked } from './state/useJobs.js';
 import { useSettings, useGateEmail } from './state/useSettings.js';
+import { cn } from './ui/cn.js';
 import { icon } from './icons.js';
 import { decrypt } from './reveal.js';
+import { useSmoothScroll } from './useSmoothScroll.js';
 
 const FORMAT_HINT = {
   aiff: 'Decoded PCM. Safest on club CDJs, ~10× the size.',
@@ -33,19 +35,39 @@ const Field = ({ label, children, className = '' }) => (
 );
 
 /** The title is the only thing that animates in — everything else paints final. */
-function CrateTitle({ title }) {
+function CrateTitle({ title, tight }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current && title) decrypt(ref.current, title); }, [title]);
   return (
     <h1 ref={ref}
-        className="m-0 font-display font-normal text-[clamp(30px,4.4vw,50px)]
-                   leading-[1.02] tracking-[-.015em] max-w-[20ch]">
+        className={cn(
+          'm-0 font-display font-normal leading-[1.02] tracking-[-.015em] max-w-[20ch]',
+          'transition-[font-size,opacity] duration-300 ease-out overflow-hidden',
+          tight ? 'text-[17px] opacity-0 h-0' : 'text-[clamp(30px,4.4vw,50px)]',
+        )}>
       &nbsp;
     </h1>
   );
 }
 
+// Past this much scroll the masthead is just taking up room. A side panel is
+// tall and narrow; height is the scarce resource and the title has been read by
+// the time the first row is gone.
+const COLLAPSE_AT = 90;
+
 export function Panel() {
+  useSmoothScroll();
+  const [tight, setTight] = useState(false);
+
+  useEffect(() => {
+    // A plain scroll listener rather than anything Lenis-specific, so the
+    // header still collapses under reduced motion, where Lenis never starts.
+    const onScroll = () => setTight(window.scrollY > COLLAPSE_AT);
+    onScroll();
+    addEventListener('scroll', onScroll, { passive: true });
+    return () => removeEventListener('scroll', onScroll);
+  }, []);
+
   const { state, crate, error } = useCrate();
   const { jobs, active, pending, fraction, run, setStatus } = useJobs();
   const { settings, set, opts } = useSettings();
@@ -130,25 +152,38 @@ export function Panel() {
           background that competes with the text on top of it has stopped being
           a background. Shorter and much fainter, so it's spent well before the
           title and reads as texture on the ground rather than as content. */}
-      <div className="absolute -top-px -left-10 -right-10 h-[132px] -z-10 overflow-hidden">
+      <div className={cn(
+        'absolute -top-px -left-10 -right-10 -z-10 overflow-hidden',
+        'transition-[height,opacity] duration-300 ease-out',
+        tight ? 'h-[64px] opacity-0' : 'h-[132px] opacity-100',
+      )}>
         <Wash direction="down" tone={1} opacity={0.22} />
       </div>
 
-      <header className="flex items-end justify-between gap-7 pb-5 border-b-[1.5px] border-ink">
+      <header className={cn(
+        'sticky top-0 z-10 flex items-end justify-between gap-7 border-b-[1.5px] border-ink',
+        'transition-[padding,background-color] duration-300 ease-out',
+        // Opaque once it's stuck, or rows scroll through the title.
+        tight ? 'pt-2 pb-2 bg-paper' : 'pb-5',
+      )}>
         {/* Energy is the share of the queue still moving, so the mark thickens
             as work piles up and settles as it drains. It reads as a state, not
             as a spinner, which is the point: a spinner says "wait", this says
             "busy". */}
         <Goblin
-          size={46}
+          size={tight ? 30 : 46}
           energy={pending ? Math.min(1, (active || 0) / 4) : 0}
-          className="self-start mt-[3px]"
+          className="self-start mt-[3px] transition-all duration-300"
         />
         <div className="mr-auto">
-          <div className="flex items-center gap-3 mb-[13px] label-caps tracking-[.18em] text-accent">
+          <div className={cn(
+            'flex items-center gap-3 label-caps tracking-[.18em] text-accent',
+            'transition-[margin] duration-300 ease-out',
+            tight ? 'mb-0' : 'mb-[13px]',
+          )}>
             <span>
               {state === 'loading' ? 'Loading' : idle
-                ? (onSoundcloud ? 'No playlist on this page' : 'Not on SoundCloud')
+                ? (onSoundcloud ? 'Nothing to dig through here' : 'Not on SoundCloud')
                 : `${crate.rows.length} ${crate.rows.length === 1 ? 'track' : 'tracks'}`}
             </span>
             {/* Counts the whole queue, not this crate — work continues after you
@@ -159,9 +194,9 @@ export function Panel() {
               </span>
             )}
           </div>
-          <CrateTitle title={
+          <CrateTitle tight={tight} title={
             state === 'loading' ? '' : idle
-              ? (state === 'error' ? 'Something went wrong' : onSoundcloud ? 'Open a crate' : 'Open SoundCloud')
+              ? (state === 'error' ? 'That did not go well' : onSoundcloud ? 'Open a crate' : 'Open SoundCloud')
               : crate.title
           } />
         </div>
@@ -243,7 +278,10 @@ export function Panel() {
         </>
       )}
 
-      <div className="mt-1">
+      {/* The container the rows measure against. A side panel is dragged to
+          any width and the viewport never moves with it, so a media query
+          would be answering a question nobody asked. */}
+      <div className="@container mt-1">
         {queue.map((job) => (
           <Row key={job.row.id} row={job.row} job={job} crateTitle={crate.title} />
         ))}
@@ -251,7 +289,7 @@ export function Panel() {
 
       {!queue.length && state === 'ready' && (
         <p className="py-24 text-center label-caps tracking-[.18em] opacity-55">
-          Nothing queued — hit Queue {crate.rows.length} to start
+          Nothing queued yet
         </p>
       )}
 

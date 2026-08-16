@@ -57,28 +57,65 @@ export function cleanTitle(title) {
 // half of a title that happens to contain a dash than it is a list of artists.
 const MAX_ARTIST_WORDS = 6;
 
+// Words that mark a parenthetical as naming a *version* rather than a feature.
+// Whoever is named inside one of these is the remixer, not the artist.
+const VERSION = /\b(re-?mix|re-?edit|\bedit\b|bootleg|mash-?up|flip|vip|rework|refix|remaster|version|\bmix\b)\b/i;
+
+/** Contents of every top-level bracketed group in a title. */
+function groups(title) {
+  return [...String(title ?? '').matchAll(/[([{]([^()[\]{}]*)[)\]}]/g)].map((m) => m[1]);
+}
+
+/**
+ * Is the declared artist credited as the remixer rather than the artist?
+ *
+ * The strong, checkable signal. If SoundCloud says the artist is X, and the
+ * title carries "(… X … Remix)", then X made *this version* and whoever is
+ * named before the dash made the record. That is also how Beatport and
+ * Rekordbox expect it: artist is the original act, the remixer lives in the
+ * title's parenthetical.
+ */
+function declaredIsRemixer(title, artist) {
+  if (!artist) return false;
+  const needle = artist.trim().toLowerCase();
+  if (needle.length < 2) return false;
+  return groups(title).some(
+    (g) => VERSION.test(g) && g.toLowerCase().includes(needle),
+  );
+}
+
 /**
  * Work out the real artist and title.
  *
- * Two situations, and only two, because everything else is guesswork:
+ * Three situations, each needing something to corroborate it:
  *
- * 1. The artist is repeated as a prefix of the title ("Pablito Mix - Foo" by
- *    Pablito Mix). Unambiguous duplication, so the prefix goes.
+ * 1. The declared artist is named inside a version parenthetical, so they are
+ *    the remixer and the act is whoever sits before the dash.
+ * 2. The artist is repeated as a prefix of the title. Unambiguous duplication,
+ *    so the prefix goes.
+ * 3. Nothing declared an artist and the title reads "Artist - Title" — the
+ *    promo-channel case, where the uploader is a label or a mix series.
  *
- * 2. Nothing declared an artist and the title reads "Artist - Title". This is
- *    the promo-channel case, where the uploader is a label or a mix series and
- *    the real credit is sitting in the title.
- *
- * When SoundCloud gives a declared artist that *isn't* a prefix, both fields
- * stay untouched. On a remix the declared artist is the remixer and the title
- * names whoever made the original, and that is already correct: rewriting it
- * would lose the original credit entirely.
+ * Anything else is left exactly as SoundCloud gave it.
  */
 export function splitArtistTitle({ title, artist, artistDeclared }) {
   const cleanedTitle = cleanTitle(title);
   const known = (artist ?? '').trim();
 
-  // 1. Drop a duplicated artist prefix.
+  // 1. Declared artist is the remixer: the credit before the dash is the act.
+  //
+  // This used to be refused outright, on the reasoning that a declared artist
+  // must be trusted. That left "Skrillex & Damian Marley - Make It Bun Dem
+  // (Pablito Mix … Remix)" tagged as by Pablito Mix, which is the remixer, and
+  // is not what you would search the library for.
+  if (known && declaredIsRemixer(cleanedTitle, known)) {
+    const m = cleanedTitle.match(/^(.{2,}?)\s+[-–—]\s+(.+)$/);
+    if (m && !/[([{]/.test(m[1]) && m[1].split(/\s+/).length <= MAX_ARTIST_WORDS) {
+      return { artist: m[1].trim(), title: m[2].trim(), split: 'remix' };
+    }
+  }
+
+  // 2. Drop a duplicated artist prefix.
   if (known) {
     const prefix = new RegExp(`^${escapeRe(known)}\\s*[-–—:]\\s*`, 'i');
     if (prefix.test(cleanedTitle)) {
@@ -89,7 +126,7 @@ export function splitArtistTitle({ title, artist, artistDeclared }) {
     if (artistDeclared) return { artist: known, title: cleanedTitle, split: null };
   }
 
-  // 2. Nobody declared an artist: try to read one out of the title.
+  // 3. Nobody declared an artist: try to read one out of the title.
   const m = cleanedTitle.match(/^(.{2,}?)\s+[-–—]\s+(.+)$/);
   if (m) {
     const [, left, right] = m;

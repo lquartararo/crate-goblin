@@ -15,6 +15,7 @@ import { setHost } from './lib/host.js';
 import { loadTracks } from './lib/api.js';
 import { triage } from './lib/triage.js';
 import { downloadRow } from './lib/download.js';
+import { createLimiter } from './lib/limiter.js';
 
 const ask = (type, payload) => chrome.runtime.sendMessage({ type, ...payload });
 
@@ -60,7 +61,90 @@ async function downloadOne(url) {
   return { title: `${row.artist} — ${row.title}`, via: res.via, bytes: res.bytes };
 }
 
+// ------------------------------------------------------------------- queue
+//
+// Batches run here rather than in the panel, which is the only way they can
+// survive the panel closing. The panel is a side panel: it is dismissed
+// constantly, and every fetch and blob write used to live in it, so a crate
+// half-downloaded was a crate lost.
+//
+// This document outlives it. The panel now sends work here, watches progress
+// messages, and resyncs from `state` when it reopens, so closing it is a UI
+// event rather than a data event.
+const scPool = createLimiter(4);
+const lucidaPool = createLimiter(3);
+
+/** id -> the last status pushed, so a reopened panel can catch up. */
+const state = new Map();
+
+function push(id, patch) {
+  state.set(id, { ...(state.get(id) ?? {}), ...patch });
+  // Fire and forget: with no panel open there is no receiver, and that is the
+  // normal case rather than an error.
+  chrome.runtime.sendMessage({ type: 'queue:progress', id, patch }).catch(() => {});
+}
+
+async function runBatch({ rows, tracks, opts, crateTitle }) {
+  const byId = new Map((tracks ?? []).map((t) => [t.id, t]));
+
+  for (const row of rows) {
+    push(row.id, { row, crate: crateTitle, text: 'queued', cls: 'working',
+                   inFlight: false, done: false, leaving: false, progress: 0 });
+  }
+
+  const base = { crate: crateTitle, inFlight: true, done: false, leaving: false };
+
+  await Promise.allSettled(rows.map((row) => (row.drmOnly ? lucidaPool : scPool)(async () => {
+    push(row.id, { ...base, row, text: 'starting', cls: 'working' });
+    try {
+      const res = await downloadRow(row, byId.get(row.id), { ...opts, folder: crateTitle }, (p) => {
+        if (p.phase === 'segments' && p.total) {
+          push(row.id, { ...base, text: `segments ${p.done}/${p.total}`, cls: 'working',
+                         progress: p.done / p.total });
+        } else if (p.phase === 'fallback') {
+          push(row.id, { ...base, text: p.reason ?? 'falling back', cls: 'warn' });
+        } else {
+          const label = { remuxing: 'remuxing', decoding: 'decoding', gate: 'working the gate' };
+          const text = p.phase === 'lucida'
+            ? (p.service ? `looking on ${p.service}` : 'looking elsewhere')
+            : label[p.phase] ?? 'downloading';
+          push(row.id, { ...base, text, cls: 'working' });
+        }
+      });
+
+      const size = res.bytes ? ` · ${(res.bytes / 1e6).toFixed(1)} MB` : '';
+      const failed = Boolean(res.gateFailed);
+      push(row.id, { text: `${res.via}${size}`, cls: failed ? 'warn' : 'ok',
+                     inFlight: false, done: true, progress: 1 });
+    } catch (e) {
+      push(row.id, { text: e.message, cls: 'err', inFlight: false, done: true });
+    }
+  })));
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'queue:run') {
+    // Answers immediately. The batch outlives the message, and the panel wants
+    // to know the work was accepted, not wait for a crate to finish.
+    const already = new Set([...state.entries()]
+      .filter(([, j]) => j.inFlight).map(([id]) => id));
+    const rows = (msg.rows ?? []).filter((r) => !already.has(r.id));
+    runBatch({ ...msg, rows });
+    sendResponse({ ok: true, skipped: (msg.rows ?? []).length - rows.length });
+    return true;
+  }
+
+  if (msg?.type === 'queue:state') {
+    sendResponse({ ok: true, jobs: [...state.entries()].map(([id, j]) => ({ id, ...j })) });
+    return true;
+  }
+
+  if (msg?.type === 'queue:forget') {
+    state.delete(msg.id);
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (msg?.type !== 'offscreen:download') return false;
   downloadOne(msg.url).then(
     (r) => sendResponse({ ok: true, ...r }),

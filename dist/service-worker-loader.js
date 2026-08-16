@@ -1,1 +1,1 @@
-import './assets/background.js.PP-ti8sd.js';
+import './assets/background.js.Cosy59la.js';

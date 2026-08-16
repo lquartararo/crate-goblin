@@ -599,6 +599,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Queue traffic needs the offscreen document alive before it can arrive.
+  if (msg.type === 'queue:run' || msg.type === 'queue:state' || msg.type === 'queue:forget') {
+    (async () => {
+      try {
+        await ensureOffscreen();
+        sendResponse(await chrome.runtime.sendMessage(msg));
+      } catch (e) {
+        sendResponse({ ok: false, reason: e?.message ?? String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'lucida:fetch') {
     lucidaPageFetch(msg.url, msg.init).then(
       (r) => sendResponse({ ok: true, ...r }),
