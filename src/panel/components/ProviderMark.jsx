@@ -46,11 +46,8 @@ export function ProviderMark({ name, size = 34, className = '' }) {
     const mark = MARKS[name];
     if (!canvas || !mark) return;
 
-    const [ink, accent, wash] = levels();
+    const [ink] = levels();
     const cell = size / N;
-    // Same grain as the goblin at the same size, so two marks sitting near each
-    // other on one screen agree about how coarse the halftone is.
-    const dcell = Math.max(1, Math.round(size / 32));
 
     // The lattice, resolved once: which cells are solid and which are cut out.
     const grid = Array.from({ length: N }, () => new Array(N).fill('.'));
@@ -68,20 +65,23 @@ export function ProviderMark({ name, size = 34, className = '' }) {
     const img = ctx.createImageData(size, size);
     const px = img.data;
 
+    // The mark itself is the halftone, and everything around it is nothing.
+    // Painting a dithered square and standing a solid silhouette on top had it
+    // backwards: the ground was the only part carrying any texture, so the
+    // marks read as logos sitting on a patterned tile rather than as artwork
+    // belonging to the same system as the rest of the panel.
+    //
+    // The ramp only goes to 0.72. Further and the one-cell-wide bars of the
+    // SoundCloud waveform come apart into loose dots at the bottom, which stops
+    // reading as halftone and starts reading as a mark that failed to draw.
     for (let y = 0; y < size; y++) {
+      const density = clamp01(1 - 0.28 * (y / size));
       for (let x = 0; x < size; x++) {
         const ch = grid[Math.min((y / cell) | 0, N - 1)][Math.min((x / cell) | 0, N - 1)];
-        let c;
-        if (ch === '#') c = ink;
-        else if (ch === 'o') c = wash;
-        else {
-          // A ground that thins toward the bottom, same ramp direction as the
-          // goblin's, so the two marks sit on the same light.
-          const density = clamp01(0.30 - 0.22 * (y / size));
-          c = density > BAYER4[((y / dcell) | 0) & 3][((x / dcell) | 0) & 3] ? accent : wash;
-        }
+        const lit = ch === '#' && density > BAYER4[y & 3][x & 3];
         const i = (y * size + x) << 2;
-        px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = 255;
+        if (!lit) { px[i + 3] = 0; continue; }   // knockout and ground alike
+        px[i] = ink[0]; px[i + 1] = ink[1]; px[i + 2] = ink[2]; px[i + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);

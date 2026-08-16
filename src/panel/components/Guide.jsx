@@ -53,9 +53,9 @@ export function Guide({ onSoundcloud, running, error }) {
           {SITES.map((s) => (
             <button key={s.url} type="button" onClick={() => openSite(s.url)}
                     className="group flex items-center gap-3.5 w-full text-left
-                               px-4 py-3.5 bg-wash/60 border-[1.5px] border-ink
+                               px-4 py-3.5 bg-wash/45 border-[1.5px] border-ink
                                transition-colors duration-150
-                               hover:bg-accent hover:text-paper
+                               hover:bg-wash
                                focus-visible:outline focus-visible:outline-2
                                focus-visible:outline-offset-2 focus-visible:outline-accent">
               <ProviderMark name={s.mark} size={34} />
