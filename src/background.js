@@ -588,6 +588,77 @@ async function lucidaPageFetch(url, init) {
   return out.result;
 }
 
+// ------------------------------------------------------- youtube page proxy
+//
+// Same problem as lucida, different site. YouTube's InnerTube endpoint answers
+// `/youtubei/v1/player` with 403 when the request carries an extension origin,
+// so youtubei.js cannot talk to it directly no matter how correct the payload
+// is. Measured: 403 from the offscreen document, fine from a youtube.com page.
+//
+// So its requests run inside a YouTube tab. Usually there is already one — you
+// are on the video you just asked for — and otherwise one is opened in the
+// background and closed again.
+const YT_URL = 'https://www.youtube.com/';
+const YT_IDLE_MS = 45_000;
+
+let ytTab = null;
+let ytOpening = null;
+let ytIdle = null;
+
+async function ensureYouTubeTab() {
+  if (ytTab) {
+    const alive = await chrome.tabs.get(ytTab.id).catch(() => null);
+    if (alive) return ytTab;
+    ytTab = null;
+  }
+
+  // Prefer a tab the user already has open, and never close that one.
+  const existing = await chrome.tabs.query({ url: 'https://*.youtube.com/*' }).catch(() => []);
+  if (existing.length) {
+    ytTab = { id: existing[0].id, ours: false };
+    return ytTab;
+  }
+
+  ytOpening ??= (async () => {
+    const tab = await chrome.tabs.create({ url: YT_URL, active: false });
+    await waitForSettle(tab.id);
+    ytTab = { id: tab.id, ours: true };
+    return ytTab;
+  })().finally(() => { ytOpening = null; });
+
+  return ytOpening;
+}
+
+function touchYouTubeTab() {
+  clearTimeout(ytIdle);
+  ytIdle = setTimeout(() => {
+    if (ytTab?.ours) chrome.tabs.remove(ytTab.id).catch(() => {});
+    ytTab = null;
+  }, YT_IDLE_MS);
+}
+
+async function youtubePageFetch(url, init) {
+  const tab = await ensureYouTubeTab();
+  touchYouTubeTab();
+
+  const [out] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: async (u, i) => {
+      try {
+        const r = await fetch(u, { ...(i ?? {}), credentials: 'include' });
+        return { ok: true, status: r.status, body: await r.text() };
+      } catch (e) {
+        return { ok: false, reason: e?.message ?? String(e) };
+      }
+    },
+    args: [url, init ?? null],
+  });
+
+  if (!out?.result) throw new Error('youtube page did not respond');
+  if (!out.result.ok) throw new Error(out.result.reason);
+  return out.result;
+}
+
 // Only one offscreen document may exist at a time, and creating it races with
 // itself if two clicks land together — hold the in-flight promise so the second
 // caller waits on the first rather than throwing.
@@ -651,6 +722,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, reason: e?.message ?? String(e) });
       }
     })();
+    return true;
+  }
+
+  if (msg.type === 'youtube:fetch') {
+    youtubePageFetch(msg.url, msg.init).then(
+      (r) => sendResponse({ ok: true, ...r }),
+      (e) => sendResponse({ ok: false, reason: e?.message ?? String(e) }),
+    );
     return true;
   }
 

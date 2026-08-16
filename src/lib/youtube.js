@@ -32,13 +32,39 @@ const DURATION_TOLERANCE = 25;
 
 let client = null;
 
+/**
+ * Every InnerTube request, routed through a real YouTube page.
+ *
+ * Host permissions get past CORS but not past YouTube: `/youtubei/v1/player`
+ * answers 403 to anything carrying an extension origin, whatever the payload
+ * says. Measured 403 from the offscreen document and fine from a youtube.com
+ * page, which is the same shape as the lucida problem and takes the same fix.
+ *
+ * youtubei.js hands us either a URL or a Request, so both are unwrapped here
+ * before crossing runtime messaging, which is JSON and would flatten a Request
+ * to nothing.
+ */
+async function pageFetch(input, init) {
+  const url = typeof input === 'string' ? input : input.url;
+  const opts = init ?? (input instanceof Request
+    ? {
+        method: input.method,
+        headers: Object.fromEntries(input.headers.entries()),
+        body: input.method === 'GET' || input.method === 'HEAD' ? undefined : await input.text(),
+      }
+    : {});
+
+  const res = await chrome.runtime.sendMessage({ type: 'youtube:fetch', url, init: opts });
+  if (!res?.ok) throw new Error(res?.reason ?? 'youtube request failed');
+  // Rebuilt as a Response because that is what the library expects back.
+  return new Response(res.body, { status: res.status });
+}
+
 async function innertube() {
   client ??= await Innertube.create({
     cache: new UniversalCache(false),
     generate_session_locally: true,
-    // The extension holds host permissions for these origins, so requests are
-    // not subject to CORS and no proxy is needed.
-    fetch: (input, init) => fetch(input, init),
+    fetch: pageFetch,
   });
   return client;
 }
