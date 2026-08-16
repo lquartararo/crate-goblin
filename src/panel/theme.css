@@ -30,9 +30,13 @@
   --color-paper: #f6edf0;    /* blush ground */
 
   /* Away from plum in hue, not just lightness: these sit in the status column
-     right beside accent-coloured text and have to separate at a glance. */
-  --color-warn: #8a5a0f;
-  --color-err: #c0261c;
+     right beside accent-coloured text and have to separate at a glance.
+     Darkened from #8a5a0f / #c0261c, which measured 4.41:1 and 4.43:1 against
+     --color-wash and so missed AA. Rows zebra-stripe, so that put half of every
+     failure message below the line, and failures are the ones worth reading.
+     Now 4.7:1 on wash, 5.5:1 on paper. */
+  --color-warn: #84560e;
+  --color-err: #b8241a;
 
   --font-display: "Redaction 35", "Didot", ui-serif, Georgia, serif;
   --font-figure: "Redaction 70", "Redaction 35", ui-serif, Georgia, serif;

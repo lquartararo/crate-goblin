@@ -175,7 +175,11 @@ export function useJobs() {
     await Promise.allSettled(queue.map((row) => (row.drmOnly ? lucidaPool : scPool)(async () => {
       setStatus(row.id, 'starting', 'working', { ...base, row });
       try {
-        const res = await downloadRow(row, byId.get(row.id), opts, (p) => {
+        // The crate name becomes the download folder. Passed per batch rather
+        // than read from settings, because a second playlist queued while the
+        // first is still running has a different name and its files belong
+        // beside their own crate, not wherever the last one went.
+        const res = await downloadRow(row, byId.get(row.id), { ...opts, folder: crateTitle }, (p) => {
           if (p.phase === 'segments' && p.total) {
             setStatus(row.id, `segments ${p.done}/${p.total}`, 'working',
               { ...base, progress: p.done / p.total });

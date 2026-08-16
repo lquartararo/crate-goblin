@@ -17,7 +17,7 @@ import { fetchTrack } from './lucida.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
 // slash in a title will silently nest it into a folder you didn't ask for.
-function filename(row, ext) {
+function filename(row, ext, folder) {
   const clean = (s) =>
     (s ?? '')
       .replace(/[/\\?%*:|"<>]/g, '-')
@@ -37,7 +37,13 @@ function filename(row, ext) {
   // on disk as a bare CDN uuid. The id is ugly but it is ours, and it still
   // points at the track.
   const base = joined || `soundcloud-${row.id}`;
-  return ext ? `${base}.${ext}` : base;
+  const name = ext ? `${base}.${ext}` : base;
+
+  // A crate lands in its own folder rather than twenty files loose in Downloads
+  // among everything else you saved this week. chrome.downloads treats a
+  // forward slash as a subdirectory, and it is the one character that stays
+  // meaningful here, which is why clean() strips slashes out of the parts.
+  return folder ? `${clean(folder)}/${name}` : name;
 }
 
 const save = (blob, name) => host.save(blob, name);
@@ -138,7 +144,7 @@ async function finalize(blob, sourceExt, row, opts, onProgress) {
           : await toPcm(blob, container === 'wav' ? 'wav' : 'aiff');
         out = meta ? await applyTags(converted, container, meta, artwork) : converted;
       }
-      await save(out, filename(row, container));
+      await save(out, filename(row, container, opts.folder));
       return {
         ext: container,
         converted: true,
@@ -154,7 +160,7 @@ async function finalize(blob, sourceExt, row, opts, onProgress) {
   }
 
   const out = meta ? await tagPreservingExisting(blob, ext, meta, artwork) : blob;
-  await save(out, filename(row, ext));
+  await save(out, filename(row, ext, opts.folder));
   return { ext, bytes: out.size };
 }
 
@@ -175,20 +181,20 @@ async function tagPreservingExisting(blob, ext, meta, artwork) {
  * preference. That's a worse trade than the wrong extension, so m4a keeps the
  * MP3. Decoding to PCM is lossless from here, so aiff/wav convert cleanly.
  */
-async function fromMp3Source(raw, row, container, meta, artwork, onProgress) {
+async function fromMp3Source(raw, row, container, meta, artwork, onProgress, folder) {
   if (container === 'aiff' || container === 'wav') {
     onProgress?.({ phase: 'decoding' });
     try {
       const pcm = await toPcm(raw, container);
       const out = meta ? await applyTags(pcm, container, meta, artwork) : pcm;
-      await save(out, filename(row, container));
+      await save(out, filename(row, container, folder));
       return { suffix: ` → ${container}`, bytes: out.size };
     } catch (e) {
       onProgress?.({ phase: 'fallback', reason: `${container} decode failed: ${e.message}` });
     }
   }
   const out = meta ? await applyTags(raw, 'mp3', meta, artwork) : raw;
-  await save(out, filename(row, 'mp3'));
+  await save(out, filename(row, 'mp3', folder));
   return { suffix: '', bytes: out.size };
 }
 
@@ -269,7 +275,7 @@ async function grabOriginal(row, opts, onProgress) {
 //
 // 'wav' and 'fragmented' still work and are kept as internal fallbacks when a
 // decode or remux fails; they're just not worth a slot in the UI.
-async function grabStream(row, track, { container = 'aiff', tags = true } = {}, onProgress) {
+async function grabStream(row, track, { container = 'aiff', tags = true, folder } = {}, onProgress) {
   const meta = tags ? metaFromRow(row) : null;
   // One artwork fetch per track, shared by whichever container path wins.
   const artwork = tags ? await fetchArtwork(row.artwork) : null;
@@ -308,7 +314,7 @@ async function grabStream(row, track, { container = 'aiff', tags = true } = {}, 
   if (t.format.protocol === 'progressive') {
     onProgress?.({ phase: 'downloading' });
     const raw = await (await fetch(mediaUrl)).blob();
-    const out = await fromMp3Source(raw, row, container, meta, artwork, onProgress);
+    const out = await fromMp3Source(raw, row, container, meta, artwork, onProgress, folder);
     return { via: `${t.preset} progressive${out.suffix}`, bytes: out.bytes };
   }
 
@@ -320,7 +326,7 @@ async function grabStream(row, track, { container = 'aiff', tags = true } = {}, 
   const isMp3 = t.format.mime_type?.includes('mpeg');
   if (isMp3) {
     // HLS MP3 segments are raw frames; concatenation is already a valid MP3.
-    const out = await fromMp3Source(blob, row, container, meta, artwork, onProgress);
+    const out = await fromMp3Source(blob, row, container, meta, artwork, onProgress, folder);
     return { via: `${t.preset} hls${out.suffix}`, bytes: out.bytes };
   }
 
@@ -330,7 +336,7 @@ async function grabStream(row, track, { container = 'aiff', tags = true } = {}, 
     try {
       const pcm = await toPcm(blob, container);
       const out = meta ? await applyTags(pcm, container, meta, artwork) : pcm;
-      await save(out, filename(row, container));
+      await save(out, filename(row, container, folder));
       return { via: `${t.preset} hls → ${container}`, bytes: out.size };
     } catch (e) {
       onProgress?.({ phase: 'fallback', reason: `${container} decode failed: ${e.message}` });
@@ -341,21 +347,21 @@ async function grabStream(row, track, { container = 'aiff', tags = true } = {}, 
   if (container === 'fragmented') {
     // No tagging here: atoms are written while moov is rebuilt, and this path
     // exists precisely to skip that rebuild.
-    await save(blob, filename(row, 'm4a'));
+    await save(blob, filename(row, 'm4a', folder));
     return { via: `${t.preset} hls (fragmented)`, bytes: blob.size };
   }
 
   onProgress?.({ phase: 'remuxing' });
   try {
     const std = remuxToStandardMp4(await blob.arrayBuffer(), meta, artwork);
-    await save(std, filename(row, 'm4a'));
+    await save(std, filename(row, 'm4a', folder));
     return { via: `${t.preset} hls → standard mp4`, bytes: std.size };
   } catch (e) {
     // The audio is already downloaded and fine — only the container rewrite
     // failed. Keeping the fragmented file costs CDJ compatibility; throwing
     // away a fully-downloaded track costs you the track. Save it and say so.
     onProgress?.({ phase: 'fallback', reason: `remux failed: ${e.message}` });
-    await save(blob, filename(row, 'm4a'));
+    await save(blob, filename(row, 'm4a', folder));
     return { via: `${t.preset} hls (fragmented — remux failed)`, bytes: blob.size, remuxFailed: true };
   }
 }

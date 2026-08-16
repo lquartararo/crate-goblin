@@ -7,6 +7,7 @@ import { Guide } from './components/Guide.jsx';
 import { Row } from './components/Row.jsx';
 import { Wash } from './components/Wash.jsx';
 import { Meter } from './components/Meter.jsx';
+import { Goblin } from './components/Goblin.jsx';
 import { useCrate } from './state/useCrate.js';
 import { useJobs, loadDrmBlocked } from './state/useJobs.js';
 import { useSettings, useGateEmail } from './state/useSettings.js';
@@ -134,7 +135,16 @@ export function Panel() {
       </div>
 
       <header className="flex items-end justify-between gap-7 pb-5 border-b-[1.5px] border-ink">
-        <div>
+        {/* Energy is the share of the queue still moving, so the mark thickens
+            as work piles up and settles as it drains. It reads as a state, not
+            as a spinner, which is the point: a spinner says "wait", this says
+            "busy". */}
+        <Goblin
+          size={46}
+          energy={pending ? Math.min(1, (active || 0) / 4) : 0}
+          className="self-start mt-[3px]"
+        />
+        <div className="mr-auto">
           <div className="flex items-center gap-3 mb-[13px] label-caps tracking-[.18em] text-accent">
             <span>
               {state === 'loading' ? 'Loading' : idle
