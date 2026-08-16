@@ -29,8 +29,16 @@ export async function probeBridge() {
         // the callback or Chrome logs it as unchecked.
         const err = chrome.runtime.lastError;
         if (err) return done({ ok: false, version: null, reason: err.message });
-        done({ ok: Boolean(res?.ok), version: res?.version ?? null,
-               reason: res?.ok ? undefined : 'yt-dlp is not installed' });
+        // Everything the host said, not the three fields the first caller
+        // happened to need. It also reports ffmpeg, the JS runtime and the log
+        // path, and narrowing here is why the about box called a working ffmpeg
+        // missing — the field never left this function.
+        done({
+          ...res,
+          ok: Boolean(res?.ok),
+          version: res?.version ?? null,
+          reason: res?.ok ? undefined : 'yt-dlp is not installed',
+        });
       });
     } catch (e) {
       done({ ok: false, version: null, reason: e?.message ?? String(e) });

@@ -114,15 +114,24 @@ export function About({ onClose }) {
 
         <div className="mt-5 pt-4 border-t-[1.5px] border-ink
                         font-mono text-[11px] leading-[1.9] tracking-[.06em]">
-          <Row k="downloader" v={detail?.bridge?.ok ? `yt-dlp ${detail.bridge.version}` : 'not installed'}
-               bad={detail ? !detail.bridge?.ok : false} />
-          <Row k="converter" v={detail?.bridge?.ffmpeg ? 'ffmpeg ready' : 'missing'}
-               bad={detail ? !detail.bridge?.ffmpeg : false} />
+          {/* Nothing is called missing before the answer arrives. The probe
+              spawns a process, so there is a real gap here, and filling it with
+              the failure state means the dialog states something untrue every
+              time it opens. */}
+          <Row k="downloader"
+               v={!detail ? '…' : detail.bridge?.ok ? `yt-dlp ${detail.bridge.version}` : 'not installed'}
+               bad={Boolean(detail) && !detail.bridge?.ok} />
+          <Row k="converter"
+               v={!detail ? '…' : detail.bridge?.ffmpeg ? 'ffmpeg ready' : 'missing'}
+               bad={Boolean(detail) && !detail.bridge?.ffmpeg} />
           <Row k="kept" v={detail ? `${detail.stats.total} tracks` : '…'} />
           {detail?.stats.failed > 0 && <Row k="failed" v={detail.stats.failed} />}
         </div>
 
-        <Button size="sm" onClick={copy} className="mt-4 w-full">
+        {/* justify-center because the base button is inline-flex and packs to
+            the start, which is right beside an icon and wrong once it spans the
+            dialog. */}
+        <Button size="sm" onClick={copy} className="mt-4 w-full justify-center">
           {copied ? 'Copied — send it to Louis' : 'Copy diagnostics'}
         </Button>
 

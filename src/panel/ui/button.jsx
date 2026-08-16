@@ -6,10 +6,15 @@ import { cn } from './cn.js';
 // radii; ours are plum on blush with full pill radii, so almost none of the
 // original styling survives. What we keep is the part worth keeping: the variant
 // API and the class-merge behaviour.
+//
+// The radius matches the selects and the rows at 3px. It was a 99px pill, which
+// made the buttons the only round thing among a panel of square-cornered
+// controls. The badges stay pills — a tag and a button are different objects,
+// and only one of them is a control.
 const button = cva(
   [
     'inline-flex items-center gap-2 whitespace-nowrap cursor-pointer',
-    'font-sans text-[12.5px] leading-none rounded-pill',
+    'font-sans text-[12.5px] leading-none rounded-[3px]',
     'transition-[background-color,color,border-color,transform] duration-150',
     'active:translate-y-px',
     'disabled:opacity-40 disabled:cursor-default disabled:active:translate-y-0',
