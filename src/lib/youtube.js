@@ -64,25 +64,32 @@ async function pageFetch(input, init) {
     throw new Error(`youtube: unusable request URL from a ${shape}: ${JSON.stringify(url)}`);
   }
 
-  const src = init ?? (input instanceof Request ? input : null);
-  const method = src?.method ?? 'GET';
+  // Precedence, one field at a time, rather than picking a single source.
+  //
+  // `init ?? request` looks equivalent and is not: youtubei.js calls
+  // fetch(request, {}) — a Request carrying POST alongside an empty init — and
+  // an empty object is not nullish, so the whole Request was discarded and its
+  // method with it. That sent GET to a POST-only endpoint, which is what the
+  // 405 was, once the URL was right enough to reach it.
+  const req = input instanceof Request ? input : null;
+  const method = String(init?.method ?? req?.method ?? 'GET').toUpperCase();
 
-  // Built by hand rather than passed through. executeScript arguments cross a
-  // structured clone, and a Headers object, an AbortSignal or a stream body all
-  // fail it — quietly taking the whole call down with them.
-  const opts = {
-    method,
-    headers: src?.headers
-      ? (src.headers instanceof Headers
-          ? Object.fromEntries(src.headers.entries())
-          : { ...src.headers })
-      : undefined,
-    body: method === 'GET' || method === 'HEAD'
-      ? undefined
-      : (input instanceof Request && !init ? await input.clone().text()
-         : typeof src?.body === 'string' ? src.body
-         : undefined),
-  };
+  const headerSource = init?.headers ?? req?.headers ?? null;
+  const headers = !headerSource ? undefined
+    : headerSource instanceof Headers ? Object.fromEntries(headerSource.entries())
+    : Array.isArray(headerSource) ? Object.fromEntries(headerSource)
+    : { ...headerSource };
+
+  // Bodies arrive as strings, buffers or streams. Response is the shortest way
+  // to read any of them, and only a string survives structured clone anyway.
+  let body;
+  if (method !== 'GET' && method !== 'HEAD') {
+    if (typeof init?.body === 'string') body = init.body;
+    else if (init?.body != null) body = await new Response(init.body).text();
+    else if (req) body = await req.clone().text();
+  }
+
+  const opts = { method, headers, body };
 
   const res = await chrome.runtime.sendMessage({ type: 'youtube:fetch', url, init: opts });
   if (!res?.ok) throw new Error(res?.reason ?? 'youtube request failed');
