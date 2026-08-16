@@ -38,8 +38,11 @@ const CELLS = {
   // one piece of internal structure was invisible. Every other glyph here reads
   // by its negative space — the arrow's stem, the padlock's shackle, the gaps
   // in the waveform — and that one had none.
+  // Two cells thick, like the padlock's body and the arrow's stem. At one cell
+  // it was a hairline outline sitting next to glyphs built from solid masses,
+  // which read as a different icon set rather than a different icon.
   store: [
-    [1, 3, 10, 1], [1, 8, 10, 1], [1, 4, 1, 4], [10, 4, 1, 4], [5, 5, 2, 2],
+    [1, 2, 10, 2], [1, 8, 10, 2], [1, 4, 2, 4], [9, 4, 2, 4], [4, 5, 4, 2],
   ],
   // Two diagonals. `error` is a single one and reads as a slash, which is a
   // different thing to say.

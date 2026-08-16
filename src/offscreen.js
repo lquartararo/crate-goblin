@@ -134,7 +134,12 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
       });
 
       const size = res.bytes ? ` · ${(res.bytes / 1e6).toFixed(1)} MB` : '';
-      const failed = Boolean(res.gateFailed);
+      // Only flag a file that is not what was asked for. A gate that refused
+      // and a stream that answered is a track you have, in the format you
+      // picked, with its tags — the gate is an implementation detail and
+      // colouring it amber reported a working download as a problem. The
+      // reason still travels in the text.
+      const failed = Boolean(res.degraded);
       record({ via: res.via, ok: !failed, bytes: res.bytes });
       push(row.id, { text: `${res.via}${size}`, cls: failed ? 'warn' : 'ok',
                      inFlight: false, done: true, progress: 1 });

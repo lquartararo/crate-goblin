@@ -195,7 +195,13 @@ async function grabViaGate(row, opts, onProgress) {
   // exactly that rather than reporting a bare success.
   if (res.viaBrowser) {
     const ext = res.filename?.match(/\.(\w+)$/)?.[1]?.toLowerCase() ?? '?';
-    return { via: `gate → ${ext} (saved by the browser — not converted or tagged)`, bytes: 0 };
+    // The one case that genuinely is not what was asked for: raw, whatever
+    // format the gate chose, no tags and no artwork.
+    return {
+      via: `gate → ${ext} (saved by the browser — not converted or tagged)`,
+      bytes: 0,
+      degraded: true,
+    };
   }
 
   if (!res.fileUrl) throw new Error('gate reported success without a file');
@@ -409,7 +415,7 @@ async function route(row, track, opts = {}, onProgress) {
           // three different situations, and only the middle one is worth
           // anyone's time.
           : e.message.replace(/\s+—\s+/g, ' · ');
-        return { ...res, via: `${res.via} (${why})`, gateFailed: true };
+        return { ...res, via: `${res.via} (${why})` };
       }
     }
 
