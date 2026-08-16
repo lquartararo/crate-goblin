@@ -431,12 +431,20 @@ def download(msg):
         # filtered away. Previously only progress lines were forwarded and the
         # reason for a failure was read and discarded.
         tail = []
+        chosen = None
         for line in proc.stdout:
             line = line.strip()
             if not line:
                 continue
             tail.append(line)
             del tail[:-40]
+            # Which transcoding it settled on. This is the only honest answer to
+            # "am I getting the good files": the output format cannot tell you,
+            # because a 128k source converted to AIFF is a large lossless file
+            # that came from a small lossy one.
+            m = re.search(r"Downloading 1 format\(s\): (\S+)", line)
+            if m:
+                chosen = m.group(1)
             if line.startswith("[download]") or line.startswith("[Extract"):
                 send({"type": "progress", "text": line[:180]})
 
@@ -482,7 +490,8 @@ def download(msg):
             n += 1
 
         shutil.move(src, final)
-        send({"type": "done", "path": final, "name": os.path.basename(final)})
+        send({"type": "done", "path": final, "name": os.path.basename(final),
+              "source": chosen, "bytes": os.path.getsize(final)})
 
 
 def main():

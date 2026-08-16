@@ -65,6 +65,22 @@ const save = (blob, name) => host.save(blob, name);
  * file nobody could identify and only the hourly sweep would ever remove. The
  * row id prefix is what lets a cancel clean up after itself immediately.
  */
+/**
+ * yt-dlp's format id, said in a way that means something.
+ *
+ * `hls_aac_160k` is precise and unreadable; the number is the part worth
+ * showing. An unrecognised id is passed through rather than dropped — better an
+ * odd string than a silent gap where the quality should be.
+ */
+function sourceLabel(id) {
+  if (!id) return '';
+  const kbps = id.match(/(\d+)k\b/)?.[1];
+  if (kbps) return `${kbps}k `;
+  if (/download/i.test(id)) return 'original ';
+  if (/mp3_1_0|mp3-128/.test(id)) return '128k ';
+  return `${id} `;
+}
+
 const stagingName = (row) => `crate-goblin-staging/${row.id}-${crypto.randomUUID()}`;
 
 // Below this, whatever came back is an error page or a truncated fragment
@@ -129,7 +145,15 @@ async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
       },
     });
     if (!res?.ok) throw new Error(res?.reason ?? 'the downloader failed');
-    return { via: `${label} → ${res.name.split('.').pop()}`, bytes: 0, savedAs: res.name };
+
+    // What it took, not just what it wrote. A 128k stream converted to AIFF is
+    // a large lossless file that came from a small lossy one, so the output
+    // format is the one thing that cannot answer "is this the good version".
+    return {
+      via: `${label} ${sourceLabel(res.source)}→ ${res.name.split('.').pop()}`.replace(/\s+/g, ' '),
+      bytes: res.bytes ?? 0,
+      savedAs: res.name,
+    };
   } finally {
     chrome.runtime.onMessage.removeListener(relay);
   }

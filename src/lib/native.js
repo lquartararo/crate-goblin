@@ -142,7 +142,9 @@ export function downloadNative({ id, url, format, media, folder, headers }, onPr
 
     port.onMessage.addListener((msg) => {
       if (msg?.type === 'progress') onProgress?.(msg.text);
-      else if (msg?.type === 'done') finish(resolve, { path: msg.path, name: msg.name });
+      else if (msg?.type === 'done') {
+        finish(resolve, { path: msg.path, name: msg.name, source: msg.source, bytes: msg.bytes });
+      }
       else if (msg?.type === 'error') finish(reject, new Error(msg.reason ?? 'download failed'));
     });
 
