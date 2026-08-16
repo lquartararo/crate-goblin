@@ -19,6 +19,7 @@ import { cn } from './ui/cn.js';
 import { icon } from './icons.js';
 import { decrypt } from './reveal.js';
 import { useSmoothScroll } from './useSmoothScroll.js';
+import { applyTheme, loadTheme } from './themes.js';
 
 const FORMAT_HINT = {
   aiff: 'Highest quality.',
@@ -108,6 +109,8 @@ function useEntrance() {
 
 export function Panel() {
   useSmoothScroll();
+  // Before anything reads the palette into a canvas.
+  useEffect(() => { loadTheme().then(applyTheme); }, []);
   const entrance = useEntrance();
   const [tight, setTight] = useState(false);
 
@@ -253,7 +256,7 @@ export function Panel() {
         'transition-[height,opacity] duration-300 ease-out',
         tight ? 'h-[64px] opacity-0' : 'h-[132px] opacity-100',
       )}>
-        <Wash direction="down" tone={1} opacity={0.22} />
+        <Wash direction="down" tone="accent" opacity={0.22} />
       </div>
 
       <header className={cn(
@@ -268,7 +271,7 @@ export function Panel() {
             "busy". */}
         {/* The mark is the way in. There is nowhere else to put an about box
             in a panel with no chrome, and a goblin is worth poking. */}
-        <button type="button" onClick={() => setAbout(true)} aria-label="About Crate Goblin"
+        <button type="button" onClick={() => setAbout(true)} aria-label="About crate goblin"
                 className="self-start mt-[3px] flex-none bg-transparent border-0 p-0 cursor-pointer">
           <Goblin
             size={tight ? 30 : 46}

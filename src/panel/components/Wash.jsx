@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { paintGradient, prefersReducedMotion } from '../dither-kit.js';
-import { levels } from '../palette.js';
+import { roles } from '../palette.js';
+import { useThemeTick } from '../useThemeTick.js';
 
 // Repaint rate for the drift.
 //
@@ -23,7 +24,10 @@ const FPS = 20;
  */
 export function Wash({
   direction = 'down',
-  tone = 1,          // index into the palette: 1 is accent
+  // Named, not an index. It used to index the levels() ramp, which is sorted by
+  // luminance — so on a dark theme the same number picked a different colour and
+  // the masthead wash came out in the wrong one.
+  tone = 'accent',
   cell = 3,
   opacity = 0.28,
   amplitude = 0.07,  // how far the dissolve edge travels
@@ -31,11 +35,12 @@ export function Wash({
   className = '',
 }) {
   const ref = useRef(null);
+  const theme = useThemeTick();
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const from = levels()[tone];
+    const from = roles()[tone] ?? roles().accent;
 
     let raf = 0;
     let last = 0;
@@ -72,7 +77,7 @@ export function Wash({
     ro.observe(canvas);
 
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [direction, tone, cell, opacity, amplitude, period]);
+  }, [direction, tone, cell, opacity, amplitude, period, theme]);
 
   return (
     <canvas

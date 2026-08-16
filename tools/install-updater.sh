@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Sets up Crate Goblin on a Mac, and keeps it that way.
+# Sets up crate goblin on a Mac, and keeps it that way.
 #
 # Three things need to stay current and only one of them is the extension:
 #

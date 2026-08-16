@@ -32,11 +32,11 @@ async function markTab(tabId, url) {
       await chrome.action.setBadgeBackgroundColor({ tabId, color: '#7a1e4b' });
       await chrome.action.setTitle({
         tabId,
-        title: kind === 'crate' ? 'Crate Goblin: download this playlist'
-                                : 'Crate Goblin: download this track',
+        title: kind === 'crate' ? 'crate goblin: download this playlist'
+                                : 'crate goblin: download this track',
       });
     } else {
-      await chrome.action.setTitle({ tabId, title: 'Crate Goblin' });
+      await chrome.action.setTitle({ tabId, title: 'crate goblin' });
     }
   } catch {
     // Tab closed mid-update. Nothing to do and nothing worth reporting.

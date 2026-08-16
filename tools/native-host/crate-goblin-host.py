@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Native host for Crate Goblin.
+Native host for crate goblin.
 
 The extension cannot download from YouTube. Not because of a bug: YouTube stopped
 putting media URLs in the player response at all, and the token that unlocks them
@@ -117,7 +117,7 @@ def which(name):
 def safe_component(name):
     """A folder name from an untrusted string, with no way out of the tree."""
     cleaned = re.sub(r'[/\\:*?"<>|]', "-", str(name or "")).strip().strip(".")
-    return cleaned[:120] or "Crate Goblin"
+    return cleaned[:120] or "crate goblin"
 
 
 def probe():

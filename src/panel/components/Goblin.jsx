@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { BAYER4, clamp01, prefersReducedMotion } from '../dither-kit.js';
-import { levels } from '../palette.js';
+import { roles } from '../palette.js';
+import { useThemeTick } from '../useThemeTick.js';
 import { CELLS, N, EYES } from '../../lib/goblin.js';
 
 /**
@@ -10,6 +11,7 @@ import { CELLS, N, EYES } from '../../lib/goblin.js';
  */
 export function Goblin({ size = 44, energy = 0, className = '' }) {
   const ref = useRef(null);
+  const theme = useThemeTick();
   // Where the pupils point, in -1..1 on each axis. A ref rather than state
   // because this changes on every mouse move and none of it belongs in React's
   // render path.
@@ -23,7 +25,7 @@ export function Goblin({ size = 44, energy = 0, className = '' }) {
     const canvas = ref.current;
     if (!canvas) return;
 
-    const [ink, accent, wash] = levels();
+    const { ink, accent, wash } = roles();
     const cell = size / N;
     // Halftone cells scale with the mark, so it reads as the same grain at 44px
     // as the 128px icon does rather than dissolving into noise.
@@ -128,7 +130,7 @@ export function Goblin({ size = 44, energy = 0, className = '' }) {
       cancelAnimationFrame(raf);
       removeEventListener('pointermove', onMove);
     };
-  }, [size]);
+  }, [size, theme]);
 
   return (
     <canvas
@@ -136,7 +138,7 @@ export function Goblin({ size = 44, energy = 0, className = '' }) {
       width={size}
       height={size}
       role="img"
-      aria-label="Crate Goblin"
+      aria-label="crate goblin"
       className={`block flex-none rounded-[2px] [image-rendering:pixelated] ${className}`}
     />
   );

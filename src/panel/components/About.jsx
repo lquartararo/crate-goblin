@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Goblin } from './Goblin.jsx';
 import { Button } from '../ui/button.jsx';
+import { cn } from '../ui/cn.js';
 import { readLog, summarize } from '../../lib/stats.js';
+import { THEMES, loadTheme, saveTheme } from '../themes.js';
 
 // What the goblin is hiding.
 //
@@ -27,7 +29,7 @@ async function diagnostics() {
   const s = summarize(log);
 
   return [
-    `Crate Goblin ${manifest.version}`,
+    `crate goblin ${manifest.version}`,
     `chrome     ${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'unknown'}`,
     `platform   ${navigator.platform}`,
     '',
@@ -51,6 +53,7 @@ const Row = ({ k, v, bad }) => (
 
 export function About({ onClose }) {
   const [pokes, setPokes] = useState(0);
+  const [theme, setTheme] = useState(null);
   const [detail, setDetail] = useState(null);
   const [copied, setCopied] = useState(false);
   const panel = useRef(null);
@@ -74,6 +77,13 @@ export function About({ onClose }) {
     })();
   }, []);
 
+  useEffect(() => { loadTheme().then(setTheme); }, []);
+
+  function pick(name) {
+    setTheme(name);
+    saveTheme(name);   // applies immediately; the canvases repaint themselves
+  }
+
   async function copy() {
     await navigator.clipboard.writeText(await diagnostics()).catch(() => {});
     setCopied(true);
@@ -84,7 +94,7 @@ export function About({ onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6
                     bg-ink/45 backdrop-blur-[2px]"
          onClick={onClose}>
-      <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="About Crate Goblin"
+      <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="About crate goblin"
            onClick={(e) => e.stopPropagation()}
            className="w-full max-w-[420px] max-h-full overflow-auto outline-none
                       bg-paper border-[1.5px] border-ink p-6">
@@ -96,7 +106,7 @@ export function About({ onClose }) {
             <Goblin size={64} energy={Math.min(1, pokes / QUIPS.length)} />
           </button>
           <div className="min-w-0">
-            <h2 className="m-0 font-display text-[28px] leading-none">Crate Goblin</h2>
+            <h2 className="m-0 font-display text-[28px] leading-none">crate goblin</h2>
             <p className="mt-2 mb-0 font-mono text-[10px] tracking-[.14em] uppercase opacity-55">
               v{version}
             </p>
@@ -112,7 +122,27 @@ export function About({ onClose }) {
           </p>
         )}
 
-        <div className="mt-5 pt-4 border-t-[1.5px] border-ink
+        {/* Colour, as colour. A dropdown of theme names would make you open it
+            to find out what any of them look like. */}
+        <div className="mt-5 pt-4 border-t-[1.5px] border-ink flex items-center gap-3">
+          <span className="font-mono text-[10px] tracking-[.14em] uppercase opacity-50">
+            Theme
+          </span>
+          <div className="flex gap-2 ml-auto">
+            {Object.entries(THEMES).map(([name, t]) => (
+              <button key={name} type="button" onClick={() => pick(name)}
+                      title={t.label} aria-label={t.label} aria-pressed={theme === name}
+                      className={cn(
+                        'w-6 h-6 cursor-pointer rounded-[3px] transition-transform duration-150',
+                        'hover:scale-110 focus-visible:outline-2 focus-visible:outline-accent',
+                        theme === name ? 'border-[2px] border-ink' : 'border-[1.5px] border-ink/25',
+                      )}
+                      style={{ background: t.swatch }} />
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 pt-4 border-t-[1.5px] border-ink
                         font-mono text-[11px] leading-[1.9] tracking-[.06em]">
           {/* Nothing is called missing before the answer arrives. The probe
               spawns a process, so there is a real gap here, and filling it with

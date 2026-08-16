@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { BAYER4, clamp01 } from '../dither-kit.js';
-import { levels } from '../palette.js';
+import { roles } from '../palette.js';
+import { useThemeTick } from '../useThemeTick.js';
 
 // Provider marks on the same 16x16 lattice the goblin is cut from.
 //
@@ -44,13 +45,14 @@ const N = 16;
  */
 export function ProviderMark({ name, size = 34, className = '' }) {
   const ref = useRef(null);
+  const theme = useThemeTick();
 
   useEffect(() => {
     const canvas = ref.current;
     const mark = MARKS[name];
     if (!canvas || !mark) return;
 
-    const [ink] = levels();
+    const { ink } = roles();
     const cell = size / N;
 
     // The lattice, resolved once: which cells are solid and which are cut out.
@@ -89,7 +91,7 @@ export function ProviderMark({ name, size = 34, className = '' }) {
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [name, size]);
+  }, [name, size, theme]);
 
   return (
     <canvas

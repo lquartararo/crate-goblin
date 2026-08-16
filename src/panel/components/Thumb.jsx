@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { loadBitmap, revealDither, liftDither, CELL } from '../dither.js';
 import { levels } from '../palette.js';
+import { useThemeTick } from '../useThemeTick.js';
 
 // The tile's on-screen size in CSS px.
 const BOX = 64;
@@ -20,6 +21,7 @@ const SIZE = Math.round(BOX / CELL);
  */
 export function Thumb({ src, alt = '' }) {
   const ref = useRef(null);
+  const theme = useThemeTick();
   // Held so hover can requantise without re-fetching. Cleared with the URL.
   const bitmapRef = useRef(null);
   const paletteRef = useRef(null);
@@ -62,7 +64,7 @@ export function Thumb({ src, alt = '' }) {
       cancelRef.current?.();
       cancelRef.current = null;
     };
-  }, [src]);
+  }, [src, theme]);
 
   function lift(to) {
     const bitmap = bitmapRef.current;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Crate Goblin",
-  "version": "0.18.2",
+  "name": "crate goblin",
+  "version": "0.19.0",
   "description": "It gets in, it takes the record. SoundCloud, and anything yt-dlp can reach.",
   "permissions": [
     "downloads",
@@ -86,7 +86,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Crate Goblin: download this playlist",
+    "default_title": "crate goblin: download this playlist",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
