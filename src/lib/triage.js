@@ -1,5 +1,26 @@
-import { drmOnly } from './hls.js';
 import { splitArtistTitle } from './naming.js';
+
+/**
+ * Whether the only thing on offer is DRM.
+ *
+ * SoundCloud increasingly serves logged-out listeners nothing but encrypted
+ * HLS, while still advertising the plain `hls` and `progressive` entries — those
+ * resolve to `HTTP 404 {}`. So every candidate we're willing to take fails, and
+ * the honest report is "sign in", not a 404 on a URL nobody can act on.
+ *
+ * The encrypted variants carry `#EXT-X-KEY:METHOD=SAMPLE-AES` with a `skd://`
+ * FairPlay key — a licence exchange with a content decryption module, not
+ * something to fetch. They are skipped, not attempted.
+ */
+// SoundCloud serves monetised tracks as encrypted HLS in two schemes and lets
+// the client pick: `cbc-` carries a FairPlay key for Apple, `ctr-` declares
+// Widevine and PlayReady for everyone else.
+const isDrm = (t) => /^(ctr|cbc)-encrypted/.test(t.format?.protocol ?? '');
+
+function drmOnly(track) {
+  const all = track.media?.transcodings ?? [];
+  return all.length > 0 && all.every(isDrm);
+}
 
 // Sorting a playlist into the three buckets.
 //

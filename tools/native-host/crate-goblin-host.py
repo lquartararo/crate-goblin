@@ -275,6 +275,11 @@ def download(msg):
             "--embed-metadata",
             "--no-progress",
             "--newline",
+            # Fragmented audio arrives one piece at a time otherwise, which is
+            # what made the in-browser version slow: it fetched 40 segments in
+            # sequence because that is all a page can reasonably do. Out here
+            # they come in parallel.
+            "--concurrent-fragments", "4",
             "-o", os.path.join(staging, "%(title)s.%(ext)s"),
         ]
 
@@ -292,8 +297,14 @@ def download(msg):
                 "--extract-audio",
                 "--audio-format", target,
                 "--audio-quality", "0",
-                "--embed-thumbnail",
             ]
+            # yt-dlp can only embed cover art into mp3, m4a, flac and the ogg
+            # family. Asking for it on wav or aiff is not a warning, it fails
+            # the whole postprocess after the audio has already downloaded —
+            # and aiff is this tool's default, so every SoundCloud track would
+            # have died at the last step.
+            if target not in ("wav",):
+                cmd += ["--embed-thumbnail"]
 
         # yt-dlp runs ffmpeg as a child and looks it up by name, so knowing the
         # path here does nothing unless it is handed over. Without this the
@@ -356,7 +367,12 @@ def download(msg):
             if not ffmpeg:
                 return send({"type": "error", "reason": "ffmpeg is needed for AIFF and is not installed"})
             aiff = os.path.splitext(src)[0] + ".aiff"
-            r = subprocess.run([ffmpeg, "-y", "-i", src, aiff], capture_output=True, env=child_env())
+            # -map_metadata keeps what yt-dlp wrote, and -write_id3v2 is what
+            # makes aiff able to hold it: the container's own text chunks carry
+            # a name and drop the artist, album and year.
+            r = subprocess.run(
+                [ffmpeg, "-y", "-i", src, "-map_metadata", "0", "-write_id3v2", "1", aiff],
+                capture_output=True, env=child_env())
             if r.returncode != 0:
                 log(r.stderr.decode("utf-8", "replace")[-2000:])
                 return send({"type": "error", "reason": "AIFF conversion failed", "log": LOG})

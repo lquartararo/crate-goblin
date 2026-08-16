@@ -39,50 +39,8 @@ globalThis.chrome = {
 globalThis.URL.createObjectURL = () => 'blob:mock';
 globalThis.URL.revokeObjectURL = () => {};
 
-const { buildId3 } = await import('../src/lib/id3.js');
 const { pool } = await import('../src/lib/pool.js');
 const { classify, isPreviewOnly, isAutomatable, BUCKET } = await import('../src/lib/triage.js');
-const { rankTranscodings } = await import('../src/lib/hls.js');
-const { encodeWav, encodeAiff } = await import('../src/lib/pcm.js');
-
-// ------------------------------------------------------------------- id3
-
-const find = (buf, str) => buf.indexOf(Buffer.from(str, 'latin1'));
-
-await test('id3: header is ID3v2.3 with synchsafe size', () => {
-  const tag = Buffer.from(buildId3({ title: 'x' }));
-  assert.equal(tag.subarray(0, 3).toString(), 'ID3');
-  assert.equal(tag[3], 3, 'major version 3');
-  for (const b of tag.subarray(6, 10)) assert.ok(b < 0x80, 'size bytes must be synchsafe');
-});
-
-await test('id3: size field matches actual frame bytes', () => {
-  const tag = Buffer.from(buildId3({ title: 'hello', artist: 'someone' }));
-  const size = (tag[6] << 21) | (tag[7] << 14) | (tag[8] << 7) | tag[9];
-  assert.equal(size, tag.length - 10);
-});
-
-await test('id3: COMM carries a language code, not a bare BOM', () => {
-  const tag = Buffer.from(buildId3({ comment: 'hi' }));
-  const at = find(tag, 'COMM');
-  assert.ok(at > 0, 'COMM frame present');
-  // frame header is 10 bytes, then encoding byte, then 3-char language
-  assert.equal(tag.subarray(at + 11, at + 14).toString(), 'eng');
-});
-
-await test('id3: non-Latin text survives as UTF-16 with BOM', () => {
-  const tag = Buffer.from(buildId3({ title: 'Nếu Em' }));
-  const at = find(tag, 'TIT2');
-  assert.equal(tag[at + 10], 0x01, 'UTF-16 encoding byte');
-  assert.equal(tag[at + 11], 0xff, 'BOM low');
-  assert.equal(tag[at + 12], 0xfe, 'BOM high');
-});
-
-await test('id3: empty fields emit no frame', () => {
-  const tag = Buffer.from(buildId3({ title: 'x', artist: null, genre: undefined }));
-  assert.equal(find(tag, 'TPE1'), -1);
-  assert.equal(find(tag, 'TCON'), -1);
-});
 
 // ------------------------------------------------------------------ pool
 
@@ -150,67 +108,6 @@ await test('triage: all-snipped transcodings do mark preview-only', () => {
   }), true);
 });
 
-// ------------------------------------------------------------ transcoding
-
-const track = {
-  media: { transcodings: [
-    { preset: 'abr_sq', format: { protocol: 'hls', mime_type: 'audio/mpegurl' } },
-    { preset: 'aac_160k', format: { protocol: 'hls', mime_type: 'audio/mp4' } },
-    { preset: 'mp3_0_0', format: { protocol: 'progressive', mime_type: 'audio/mpeg' } },
-  ] },
-};
-
-await test('transcoding: anonymous avoids abr_sq (it 404s without auth)', () => {
-  assert.equal(rankTranscodings(track, { authenticated: false })[0].preset, 'aac_160k');
-});
-
-await test('transcoding: authenticated prefers abr_sq for Go+ 256k', () => {
-  assert.equal(rankTranscodings(track, { authenticated: true })[0].preset, 'abr_sq');
-});
-
-await test('transcoding: mp3 request picks the progressive stream', () => {
-  assert.equal(rankTranscodings(track, { preferAac: false })[0].format.protocol, 'progressive');
-});
-
-await test('transcoding: DRM variants are dropped, not returned', () => {
-  const drm = { media: { transcodings: [{ preset: 'x', format: { protocol: 'ctr-encrypted-hls' } }] } };
-  assert.equal(rankTranscodings(drm).length, 0);
-});
-
-// ------------------------------------------------------------------- pcm
-
-const tone = (() => {
-  const rate = 44100, frames = 4410;
-  const ch = new Float32Array(frames);
-  for (let i = 0; i < frames; i++) ch[i] = Math.sin((2 * Math.PI * 440 * i) / rate) * 0.5;
-  return { numberOfChannels: 2, sampleRate: rate, length: frames, getChannelData: () => ch };
-})();
-
-await test('pcm: WAV declares format tag 1, not EXTENSIBLE', async () => {
-  const b = Buffer.from(await encodeWav(tone).arrayBuffer());
-  assert.equal(b.readUInt16LE(20), 1, 'WAVE_FORMAT_PCM');
-  assert.equal(b.readUInt32LE(16), 16, 'canonical fmt chunk');
-});
-
-await test('pcm: WAV carries only fmt and data chunks', async () => {
-  const b = Buffer.from(await encodeWav(tone).arrayBuffer());
-  assert.equal(b.subarray(12, 16).toString(), 'fmt ');
-  assert.equal(b.subarray(36, 40).toString(), 'data');
-});
-
-await test('pcm: AIFF encodes 44100 as an 80-bit extended float', async () => {
-  const b = Buffer.from(await encodeAiff(tone).arrayBuffer());
-  const at = b.indexOf(Buffer.from('COMM')) + 8;
-  const exp = b.readUInt16BE(at + 8) - 16383;
-  const mantissa = Number(b.readBigUInt64BE(at + 10)) / 2 ** 63;
-  assert.equal(Math.round(mantissa * 2 ** exp), 44100);
-});
-
-await test('pcm: AIFF FORM size matches the real byte length', async () => {
-  const b = Buffer.from(await encodeAiff(tone).arrayBuffer());
-  assert.equal(b.readUInt32BE(4), b.length - 8);
-});
-
 // --------------------------------------------------------------- limiter
 
 const { createLimiter } = await import('../src/lib/limiter.js');
@@ -241,54 +138,6 @@ await test('limiter: a rejected job still frees its slot', async () => {
     new Promise((r) => setTimeout(() => r('deadlocked'), 200)),
   ]);
   assert.equal(after, 'ran');
-});
-
-// --------------------------------------------------------------- tagread
-
-const { readExistingTags } = await import('../src/lib/tagread.js');
-
-await test('tagread: finds the fields an ID3 tag already carries', async () => {
-  const tag = buildId3({ title: 'x', artist: 'y' });
-  const present = await readExistingTags(new Blob([tag]), 'mp3');
-  assert.ok(present.has('title'));
-  assert.ok(present.has('artist'));
-  assert.ok(!present.has('album'), 'must not claim a field that was never written');
-});
-
-await test('tagread: an untagged file reports nothing', async () => {
-  const present = await readExistingTags(new Blob([new Uint8Array(2048)]), 'mp3');
-  assert.equal(present.size, 0);
-});
-
-await test('tagread: unknown container reports nothing rather than guessing', async () => {
-  const present = await readExistingTags(new Blob([new Uint8Array(64)]), 'wav');
-  assert.equal(present.size, 0);
-});
-
-const { mergeWithExisting } = await import('../src/lib/tag.js');
-
-await test('merge: never overwrites a tag the file already has', async () => {
-  // A master from the artist is usually tagged properly, and SoundCloud's
-  // title would replace it with "… (FREE DOWNLOAD)".
-  const tagged = new Blob([buildId3({ title: 'Clean Title', artist: 'Real Artist' })]);
-  const { meta } = await mergeWithExisting(tagged, 'mp3',
-    { title: 'Messy (FREE DOWNLOAD)', artist: 'promo channel', genre: 'Techno' }, null);
-  assert.equal(meta.title, undefined, 'existing title must survive');
-  assert.equal(meta.artist, undefined, 'existing artist must survive');
-  assert.equal(meta.genre, 'Techno', 'missing field should still be filled');
-});
-
-await test('merge: writes everything when the file has no tags', async () => {
-  const { meta } = await mergeWithExisting(new Blob([new Uint8Array(1024)]), 'mp3',
-    { title: 'T', artist: 'A' }, null);
-  assert.equal(meta.title, 'T');
-  assert.equal(meta.artist, 'A');
-});
-
-await test('merge: keeps existing artwork rather than replacing it', async () => {
-  const withArt = new Blob([buildId3({ title: 'x' }, { mime: 'image/jpeg', bytes: new Uint8Array(600) })]);
-  const { artwork } = await mergeWithExisting(withArt, 'mp3', { genre: 'g' }, { mime: 'image/jpeg', bytes: new Uint8Array(10) });
-  assert.equal(artwork, null);
 });
 
 // ------------------------------------------------------- metadata honesty
@@ -431,193 +280,40 @@ await test('host: overrides are partial, not wholesale replacement', async () =>
 // wrong. This runs the real routing with the host seam standing in for the
 // browser, and asserts on what `save` is actually handed.
 
-const TRACK = {
-  id: 1604612526,
-  title: 'Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix, City Lights & HSTN Cumbiaton Remix)',
-  user: { username: 'PABLITO MIX' },
-  publisher_metadata: { artist: 'Pablito Mix' },
-  artwork_url: 'https://i1.sndcdn.com/artworks-x-large.jpg',
-  duration: 210_000,
-  full_duration: 210_000,
-  genre: 'Electronic',
-  downloadable: false,
-  has_downloads_left: false,
-  purchase_url: null,
-  purchase_title: null,
-  license: 'all-rights-reserved',
-  permalink_url: 'https://soundcloud.com/pablitomix/make-it-bun-dem-cumbiaton-remix',
-  display_date: '2024-01-01T00:00:00Z',
-  release_date: null,
-  download_count: 0,
-  media: {
-    transcodings: [{
-      url: 'https://api-v2.soundcloud.com/media/soundcloud:tracks:1/x/stream/progressive',
-      preset: 'mp3_1_0',
-      snipped: false,
-      format: { protocol: 'progressive', mime_type: 'audio/mpeg' },
-    }],
-  },
-};
+await test('download: the filename rule is unchanged by the move to yt-dlp', async () => {
+  const { filename } = await import('../src/lib/download.js');
 
-await test('download: the computed filename is what reaches save()', async () => {
-  const { triage } = await import('../src/lib/triage.js');
-  const { downloadRow } = await import('../src/lib/download.js');
+  // This rule broke four separate times before it was pinned down, always the
+  // same way: something downstream decided it knew better and the file landed
+  // as a bare CDN uuid. It now travels to the converter as `name` instead of to
+  // chrome.downloads, so it is worth asserting on its own rather than through
+  // whichever component happens to consume it this month.
+  const row = { id: 42, artist: 'Sumant', title: 'Arizona B' };
+  assert.equal(filename(row, 'aiff'), 'Sumant - Arizona B.aiff');
+  assert.equal(filename(row, 'aiff', 'remixes !!'), 'remixes !!/Sumant - Arizona B.aiff');
 
-  const row = triage([TRACK], { album: null }).rows[0];
-
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    const u = String(url);
-    // Artwork: refuse it, so the assertion is about naming, not tagging.
-    if (u.includes('sndcdn.com/artworks')) return { ok: false, status: 404 };
-    // Resolving the transcoding hands back the signed media URL.
-    if (u.includes('/stream/progressive')) {
-      return { ok: true, status: 200, json: async () => ({ url: 'https://cf-media.sndcdn.com/abc.128.mp3' }) };
-    }
-    // The audio itself — a valid-enough MP3 frame header for the tagger.
-    const bytes = new Uint8Array(4096);
-    bytes[0] = 0xff; bytes[1] = 0xfb;
-    return { ok: true, status: 200, url: u, headers: new Map(), blob: async () => new Blob([bytes], { type: 'audio/mpeg' }) };
-  };
-
-  const saves = [];
-  setHost({
-    getStored: async () => 'client-id',
-    setStored: async () => {},
-    oauthToken: async () => null,
-    save: async (_blob, name) => void saves.push(name),
-  });
-
-  try {
-    await downloadRow(row, TRACK, { mode: 'stream', container: 'mp3' }, () => {});
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-
-  assert.equal(saves.length, 1, 'exactly one file was saved');
-  assert.ok(saves[0], 'save() was given a name at all, not undefined');
-  assert.ok(
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(saves[0]),
-    `save() got a uuid instead of a title: ${saves[0]}`,
-  );
+  // Artists routinely bake the artist into the title; don't double it.
   assert.equal(
-    saves[0],
-    // The remix rule in naming.js moved the credit: Pablito Mix is named inside
-    // the version parenthetical, so they are the remixer and the act is the one
-    // before the dash. Previously this filed under "Pablito Mix - Skrillex &
-    // Damian Marley - …", which buried the record under its remixer.
-    'Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix, City Lights & HSTN Cumbiaton Remix).mp3',
+    filename({ id: 1, artist: 'Sumant', title: 'Sumant - Arizona B' }, 'mp3'),
+    'Sumant - Arizona B.mp3',
   );
+
+  // A slash would silently nest the file into a directory nobody asked for.
+  assert.equal(
+    filename({ id: 2, artist: 'AC/DC', title: 'Back/Black' }, 'mp3'),
+    'AC-DC - Back-Black.mp3',
+  );
+
+  // Slashes become dashes rather than vanishing, so '///' is still a name.
+  assert.equal(filename({ id: 6, artist: '', title: '///' }, 'mp3'), '---.mp3');
+
+  // Genuinely nothing left -> the id, never an empty name. An empty one makes
+  // chrome.downloads fall back to the URL's own basename, which is the uuid.
+  assert.equal(filename({ id: 7, artist: '', title: '   ' }, 'mp3'), 'soundcloud-7.mp3');
 });
 
 // --------------------------------------------------------------- m4a mux
 
-// A container that lies about its contents fails at the CDJ, not here — so the
-// box tree gets walked rather than trusted. Asking for m4a from a lossless
-// source used to write AIFF audio into a .m4a file; this is the replacement.
-
-function walkBoxes(bytes, start = 0, end = bytes.length) {
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const out = [];
-  let p = start;
-  while (p + 8 <= end) {
-    const size = dv.getUint32(p);
-    const type = String.fromCharCode(...bytes.subarray(p + 4, p + 8));
-    if (size < 8 || p + size > end) break;
-    out.push({ type, start: p, size, body: p + 8 });
-    p += size;
-  }
-  return out;
-}
-
-function findBox(bytes, path) {
-  let list = walkBoxes(bytes);
-  let hit = null;
-  for (const want of path) {
-    hit = list.find((b) => b.type === want);
-    if (!hit) return null;
-    // Containers whose payload begins with a fixed header need it skipped.
-    const skip = hit.type === 'stsd' ? 8 : hit.type === 'mp4a' ? 28 : 0;
-    list = walkBoxes(bytes, hit.body + skip, hit.start + hit.size);
-  }
-  return hit;
-}
-
-await test('m4a: encodes AAC into a well-formed MP4', async () => {
-  const RATE = 44100, FRAMES = 7, ASC = new Uint8Array([0x12, 0x10]);
-
-  // Stub the browser codec surface. The muxing is ours and is what's under
-  // test; the encoder is Chrome's and can't run here.
-  globalThis.OfflineAudioContext = class {
-    async decodeAudioData() {
-      return {
-        sampleRate: RATE,
-        numberOfChannels: 2,
-        length: FRAMES * 1024,
-        getChannelData: () => new Float32Array(FRAMES * 1024),
-      };
-    }
-  };
-  globalThis.AudioData = class { constructor(init) { Object.assign(this, init); } };
-  globalThis.AudioEncoder = class {
-    static async isConfigSupported() { return { supported: true }; }
-    constructor({ output }) { this.output = output; }
-    configure() {}
-    encode() {
-      for (let i = 0; i < FRAMES; i++) {
-        this.output(
-          { byteLength: 100, copyTo: (b) => b.fill(i + 1) },
-          i === 0 ? { decoderConfig: { description: ASC } } : {},
-        );
-      }
-    }
-    async flush() {}
-    close() {}
-  };
-
-  const { toM4a } = await import('../src/lib/aac.js');
-  const blob = await toM4a(new Blob([new Uint8Array(64)]), null, null);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-
-  assert.equal(blob.type, 'audio/mp4');
-
-  const top = walkBoxes(bytes).map((b) => b.type);
-  assert.deepEqual(top, ['ftyp', 'moov', 'mdat'], `top-level boxes: ${top}`);
-
-  for (const path of [
-    ['moov', 'mvhd'], ['moov', 'trak', 'tkhd'], ['moov', 'trak', 'mdia', 'mdhd'],
-    ['moov', 'trak', 'mdia', 'hdlr'], ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsd'],
-  ]) {
-    assert.ok(findBox(bytes, path), `missing ${path.join('/')}`);
-  }
-
-  // esds carries the AudioSpecificConfig; without it a player has no idea what
-  // rate or channel count the AAC is, which is the silent-output failure.
-  const stsd = findBox(bytes, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsd']);
-  const inStsd = walkBoxes(bytes, stsd.body + 8, stsd.start + stsd.size);
-  assert.equal(inStsd[0]?.type, 'mp4a', 'stsd holds an mp4a entry');
-  const esds = walkBoxes(bytes, inStsd[0].body + 28, inStsd[0].start + inStsd[0].size)
-    .find((b) => b.type === 'esds');
-  assert.ok(esds, 'mp4a holds an esds');
-  assert.ok(
-    bytes.subarray(esds.body, esds.start + esds.size).join(',').includes(ASC.join(',')),
-    'esds embeds the encoder-supplied AudioSpecificConfig',
-  );
-
-  // The chunk offset is written before the moov's final size is known, so it is
-  // built twice. If those two passes ever differ in length this points at the
-  // wrong byte and every player reads garbage.
-  const stco = findBox(bytes, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stco']);
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const offset = dv.getUint32(stco.body + 8);
-  const mdat = walkBoxes(bytes).find((b) => b.type === 'mdat');
-  assert.equal(offset, mdat.body, 'stco points at the first byte of mdat audio');
-
-  // Sample sizes must add up to what is actually in mdat.
-  const stsz = findBox(bytes, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsz']);
-  assert.equal(dv.getUint32(stsz.body + 8), FRAMES, 'stsz counts every frame');
-  assert.equal(mdat.size - 8, FRAMES * 100, 'mdat holds exactly the encoded frames');
-});
 
 // ------------------------------------------------------------ self-update
 

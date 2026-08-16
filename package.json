@@ -21,7 +21,6 @@
     "vite": "^8.2.1"
   },
   "dependencies": {
-    "@breezystack/lamejs": "^1.2.7",
     "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-toggle-group": "^1.1.19",
     "class-variance-authority": "^0.7.1",

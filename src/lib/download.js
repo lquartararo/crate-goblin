@@ -1,24 +1,33 @@
 // Per-bucket download routing.
 //
-// Runs in the panel page, not the service worker: MV3 workers have no
-// URL.createObjectURL, and streaming a 40-segment track through one is a
-// fight you don't need to have.
+// This file used to be a download engine. It is now only the routing: which of
+// the three ways to get a track applies, and what to do when one of them fails.
+//
+// The engine moved to yt-dlp and ffmpeg behind the native bridge. That deleted
+// hls.js, aac.js, mp3.js, pcm.js, remux.js, id3.js, tag.js, tagread.js and the
+// MP3 worker — roughly 1,350 lines whose entire job was doing, inside a browser
+// tab, what those two do outside it. They do it better: real ffmpeg instead of
+// lamejs and a hand-written ID3 writer, and repaired on a schedule by people
+// who do nothing else, which matters far more than either when SoundCloud
+// changes something.
+//
+// What could not move stayed, because it needs a browser and a session:
+//
+//   gates    clicking through Hypeddit and friends — two thirds of a crate
+//   lucida   a page, a challenge, and cookies
+//   routing  deciding which of those a track needs
+//
+// Runs in the offscreen document rather than the service worker: the gate and
+// lucida paths still handle blobs, and MV3 workers have no URL.createObjectURL.
 
-import { resolveTranscoding, originalDownloadUrl } from './api.js';
-import { fetchHlsAudio, rankTranscodings, drmOnly } from './hls.js';
-import { remuxToStandardMp4 } from './remux.js';
-import { toM4a } from './aac.js';
-import { toPcm } from './pcm.js';
-import { toMp3 } from './mp3.js';
-import { applyTags, fetchArtwork, metaFromRow, mergeWithExisting } from './tag.js';
+import { getOAuthToken } from './api.js';
 import { BUCKET, isAutomatable } from './triage.js';
 import { host } from './host.js';
-import { currentSession } from './session.js';
 import { fetchTrack } from './lucida.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
 // slash in a title will silently nest it into a folder you didn't ask for.
-function filename(row, ext, folder) {
+export function filename(row, ext, folder) {
   const clean = (s) =>
     (s ?? '')
       .replace(/[/\\?%*:|"<>]/g, '-')
@@ -49,38 +58,9 @@ function filename(row, ext, folder) {
 
 const save = (blob, name) => host.save(blob, name);
 
-const AUDIO_EXT = /\.(wav|aiff?|flac|mp3|m4a|ogg)(?:$|[?#])/i;
-
-const FROM_MIME = {
-  'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav',
-  'audio/aiff': 'aiff', 'audio/x-aiff': 'aiff',
-  'audio/flac': 'flac', 'audio/x-flac': 'flac',
-  'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
-  'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a',
-};
-
-/**
- * Work out what a gate actually handed us.
- *
- * The URL is the least reliable of the three signals — plenty of gates serve
- * from a path with no extension at all, and guessing 'mp3' there meant a WAV
- * got labelled mp3 and skipped conversion. Content-Disposition is what the
- * server says the file is called, so it wins; the MIME type is the backstop.
- */
-function extFromResponse(res, fallback = 'mp3') {
-  const disposition = res.headers.get('content-disposition') ?? '';
-  const named = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i)?.[1];
-  const fromName = named && decodeURIComponent(named).match(AUDIO_EXT)?.[1];
-  if (fromName) return fromName.toLowerCase();
-
-  const fromUrl = res.url.match(AUDIO_EXT)?.[1];
-  if (fromUrl) return fromUrl.toLowerCase();
-
-  const mime = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
-  return FROM_MIME[mime] ?? fallback;
-}
-
-const LOSSLESS = /^(wav|aiff?|flac)$/i;
+// Below this, whatever came back is an error page or a truncated fragment
+// rather than a track.
+const MIN_PLAUSIBLE_BYTES = 128 * 1024;
 
 /**
  * What to say when the only live streams are encrypted.
@@ -94,117 +74,97 @@ const LOSSLESS = /^(wav|aiff?|flac)$/i;
  * against a live MONETIZE / AD_SUPPORTED track with a valid OAuth header
  * attached: the encrypted transcodings resolve 200 and every plain one —
  * mp3_1_0 hls, mp3_1_0 progressive, abr_sq — returns 404, exactly as they do
- * signed out. The plain entries are advertised but vestigial. Earlier wording
- * told people to sign in and retry, which is advice that cannot work and sends
- * someone hunting for a problem on their own end.
+ * signed out. The plain entries are advertised but vestigial.
  */
 const drmMessage = () => 'DRM-protected, no plain stream offered';
 
+// --------------------------------------------------------------- the bridge
+
 /**
- * Bring a directly-acquired file (artist original, or whatever a gate handed
- * over) in line with the chosen format, and tag it.
+ * Hand a URL to yt-dlp and let it fetch, convert and tag.
  *
- * This used to refuse to transcode a lossless master down to a lossy target: if
- * you asked for MP3 and the artist uploaded a WAV, you kept the WAV. The
- * reasoning was that throwing away a master to save disk is a bad trade — but
- * it's not the call to make silently. Picking MP3 means wanting MP3 everywhere,
- * usually because something downstream has to read it, and a crate that is
- * mostly MP3 with unexplained 60 MB WAVs in it is worse than one that's
- * consistent. Worse still, WAV is the one format applyTags can't write, so
- * those kept files were also the only untagged, art-less ones in the crate.
- *
- * So: the requested container always wins. The only fallback is a failed
- * conversion, where keeping the original beats losing the track.
+ * Everything that is just "a URL SoundCloud will serve" comes through here:
+ * the artist's original when they left downloads on, and the transcodes when
+ * they didn't. yt-dlp picks the best available and does the conversion with
+ * ffmpeg, which is the same decision tree this file used to hold and a better
+ * implementation of the part underneath it.
  */
-async function finalize(blob, sourceExt, row, opts, onProgress) {
-  const { container = 'aiff', tags = true } = opts;
-  const meta = tags ? metaFromRow(row) : null;
-  const artwork = tags ? await fetchArtwork(row.artwork) : null;
+async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
+  onProgress?.({ phase: 'native' });
 
-  const ext = sourceExt.replace(/^aif$/, 'aiff');
-
-  if (ext !== container) {
-    onProgress?.({ phase: 'decoding' });
-    try {
-      // m4a had no branch here and fell through to toPcm, which wrote AIFF
-      // audio into a file named .m4a — a container lying about its contents,
-      // which fails at the deck rather than in the panel.
-      //
-      // It tags itself, unlike the others: iTunes atoms live inside moov, so
-      // they have to be written while the container is built rather than
-      // bolted on afterwards. That's why applyTags is a no-op for m4a.
-      let out;
-      if (container === 'm4a') {
-        out = await toM4a(blob, meta, artwork);
-      } else {
-        const converted = container === 'mp3'
-          ? await toMp3(blob)
-          : await toPcm(blob, container === 'wav' ? 'wav' : 'aiff');
-        out = meta ? await applyTags(converted, container, meta, artwork) : converted;
-      }
-      await save(out, filename(row, container, opts.folder));
-      return {
-        ext: container,
-        converted: true,
-        from: LOSSLESS.test(ext) ? ext : null,
-        bytes: out.size,
-      };
-    } catch (e) {
-      // The file is already downloaded and playable; only the conversion
-      // failed. Keeping it in its original form is strictly better than losing
-      // it over a container preference.
-      onProgress?.({ phase: 'fallback', reason: `convert failed: ${e.message}` });
+  // Progress arrives as broadcasts while the worker holds the port, because
+  // connectNative is not available in an offscreen document.
+  const relay = (m) => {
+    if (m?.type === 'native:progress' && m.id === row.id) {
+      onProgress?.({ phase: 'native', text: m.text });
     }
+  };
+  chrome.runtime.onMessage.addListener(relay);
+
+  try {
+    // A Go+ session is handed better transcodings than an anonymous one, and
+    // yt-dlp has no session of its own. The extension is already inside one, so
+    // it lends the header — rather than yt-dlp reading Chrome's cookie jar,
+    // which on macOS raises a keychain prompt.
+    const token = await getOAuthToken().catch(() => null);
+
+    const res = await chrome.runtime.sendMessage({
+      type: 'native:download',
+      job: {
+        id: row.id,
+        url: row.permalink,
+        format: opts.container ?? 'aiff',
+        media: opts.media ?? 'audio',
+        folder: opts.folder,
+        headers: token ? { Authorization: `OAuth ${token}` } : undefined,
+      },
+    });
+    if (!res?.ok) throw new Error(res?.reason ?? 'the downloader failed');
+    return { via: `${label} → ${res.name.split('.').pop()}`, bytes: 0, savedAs: res.name };
+  } finally {
+    chrome.runtime.onMessage.removeListener(relay);
   }
-
-  const out = meta ? await tagPreservingExisting(blob, ext, meta, artwork) : blob;
-  await save(out, filename(row, ext, opts.folder));
-  return { ext, bytes: out.size };
-}
-
-// Fill only the gaps. Applies to files we keep as-is; a converted file has no
-// tags to preserve, so those get the full set written fresh.
-async function tagPreservingExisting(blob, ext, meta, artwork) {
-  const merged = await mergeWithExisting(blob, ext, meta, artwork);
-  if (!merged.filled.length && !merged.artwork) return blob; // already complete
-  return applyTags(blob, ext, merged.meta, merged.artwork);
 }
 
 /**
- * Save an MP3 SoundCloud handed us, converting when the chosen format isn't it.
+ * A file the browser had to fetch itself, converted and tagged by ffmpeg.
  *
- * Only PCM targets convert. Asking for m4a and being given a progressive MP3
- * means the AAC wasn't available at all — and re-encoding MP3 into AAC would
- * stack a second lossy generation on the first purely to satisfy a container
- * preference. That's a worse trade than the wrong extension, so m4a keeps the
- * MP3. Decoding to PCM is lossless from here, so aiff/wav convert cleanly.
+ * Gates need a session and lucida needs a page, so those two arrive as a blob
+ * rather than as a URL yt-dlp could take. It goes to disk and then out to the
+ * same converter, so there is still exactly one answer to "make this the format
+ * that was asked for".
  */
-async function fromMp3Source(raw, row, container, meta, artwork, onProgress, folder) {
-  if (container === 'aiff' || container === 'wav') {
-    onProgress?.({ phase: 'decoding' });
-    try {
-      const pcm = await toPcm(raw, container);
-      const out = meta ? await applyTags(pcm, container, meta, artwork) : pcm;
-      await save(out, filename(row, container, folder));
-      return { suffix: ` → ${container}`, bytes: out.size };
-    } catch (e) {
-      onProgress?.({ phase: 'fallback', reason: `${container} decode failed: ${e.message}` });
-    }
-  }
-  const out = meta ? await applyTags(raw, 'mp3', meta, artwork) : raw;
-  await save(out, filename(row, 'mp3', folder));
-  return { suffix: '', bytes: out.size };
+async function convertOnDisk(blob, row, opts, onProgress) {
+  onProgress?.({ phase: 'remuxing' });
+
+  // A staging name, because the converter names the finished file. Two of them
+  // in flight at once would otherwise collide on a shared folder.
+  const id = await save(blob, `crate-goblin-staging/${crypto.randomUUID()}`);
+  const found = await chrome.runtime.sendMessage({ type: 'host:path', id });
+  if (!found?.ok) throw new Error('the browser saved the file somewhere it could not name');
+
+  const res = await chrome.runtime.sendMessage({
+    type: 'native:convert',
+    job: {
+      path: found.path,
+      format: opts.container ?? 'aiff',
+      folder: opts.folder,
+      name: filename(row, '').replace(/\.$/, ''),
+      // The browser has the artwork and the file usually does not.
+      artwork: row.artwork,
+      tags: {
+        title: row.title || undefined,
+        artist: row.artist || undefined,
+        album: row.album || undefined,
+        date: row.year || undefined,
+      },
+    },
+  });
+  if (!res?.ok) throw new Error(res?.reason ?? 'conversion failed');
+  return { ext: res.name.split('.').pop(), bytes: blob.size, savedAs: res.name };
 }
 
-// --------------------------------------------------------------- strategies
-
-// Bucket B: hand the gate to the automation and take whatever file it exposes.
-//
-// Deliberately strict about what counts as success. A gate that returns an HTML
-// error page, a 30-byte placeholder, or a redirect back to itself must read as
-// failure so the caller drops to the stream — a broken file in a crate is worse
-// than a lower-bitrate one, because you don't find out until you play it.
-const MIN_PLAUSIBLE_BYTES = 128 * 1024;
+// ----------------------------------------------------------------- the gate
 
 async function grabViaGate(row, opts, onProgress) {
   onProgress?.({ phase: 'gate' });
@@ -219,10 +179,9 @@ async function grabViaGate(row, opts, onProgress) {
   if (!res?.ok) throw new Error(res?.reason || 'gate did not yield a file');
 
   // The gate produced a blob:/data: download from its own page, which we can't
-  // refetch from here. Rare now that http(s) downloads are intercepted and run
-  // through the pipeline, but when it happens the file is on disk in whatever
-  // format the gate chose, unconverted and untagged — so say exactly that
-  // rather than reporting a bare success.
+  // refetch from here. Rare now that http(s) downloads are intercepted, but when
+  // it happens the file is on disk in whatever format the gate chose, so say
+  // exactly that rather than reporting a bare success.
   if (res.viaBrowser) {
     const ext = res.filename?.match(/\.(\w+)$/)?.[1]?.toLowerCase() ?? '?';
     return { via: `gate → ${ext} (saved by the browser — not converted or tagged)`, bytes: 0 };
@@ -239,156 +198,18 @@ async function grabViaGate(row, opts, onProgress) {
   const blob = await file.blob();
   if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`gate file too small (${blob.size} B)`);
 
-  const out = await finalize(blob, extFromResponse(file), row, opts, onProgress);
-  return { via: `gate → ${out.ext}${out.from ? ` (from ${out.from})` : ''}`, bytes: out.bytes };
+  const out = await convertOnDisk(blob, row, opts, onProgress);
+  return { via: `gate → ${out.ext}`, bytes: out.bytes, savedAs: out.savedAs };
 }
 
-// Bucket A: the actual master the artist uploaded. Needs a logged-in session.
-async function grabOriginal(row, opts, onProgress) {
-  const url = await originalDownloadUrl(row.id);
-  if (!url) throw new Error('Artist download returned no URL');
-
-  onProgress?.({ phase: 'downloading' });
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`original ${res.status}`);
-  const blob = await res.blob();
-
-  const out = await finalize(blob, extFromResponse(res, 'wav'), row, opts, onProgress);
-  return { via: `original → ${out.ext}${out.from ? ` (from ${out.from})` : ''}`, bytes: out.bytes };
-}
-
-// Bucket C (and the gated fallback): best available transcode.
-//
-// `container` decides what lands on disk. Nothing here re-encodes audio.
-//
-//   'aiff'  decode the AAC to PCM. ~10x bigger, identical sound, plays on
-//           anything. Default, because SoundCloud's AAC is VBR and VBR is the
-//           known trigger for stutter on older club decks — and a track that
-//           dies mid-set costs more than disk does.
-//   'm4a'   keep the AAC, rewrite the container losslessly. Best quality per
-//           byte there is: same audio AIFF decodes from, ~1/10th the size.
-//   'mp3'   SoundCloud's own 128k MP3, fetched directly. Lower quality than
-//           either of the above, but one lossy generation rather than two —
-//           transcoding the AAC would stack a second. For maximum reach.
-//
-// 'wav' and 'fragmented' still work and are kept as internal fallbacks when a
-// decode or remux fails; they're just not worth a slot in the UI.
-async function grabStream(row, track, { container = 'aiff', tags = true, folder } = {}, onProgress) {
-  const meta = tags ? metaFromRow(row) : null;
-  // One artwork fetch per track, shared by whichever container path wins.
-  const artwork = tags ? await fetchArtwork(row.artwork) : null;
-
-  // A token means signed in, which is not the same as entitled. Go+ changes
-  // which transcodings SoundCloud offers at all, so the ranking follows the
-  // plan rather than the cookie.
-  const { signedIn, goPlus } = await currentSession();
-  const authenticated = goPlus || signedIn;
-  // Asking for mp3 means taking the progressive stream rather than the AAC.
-  const candidates = rankTranscodings(track, { preferAac: container !== 'mp3', authenticated });
-  if (!candidates.length) {
-    throw new Error(drmOnly(track) ? drmMessage() : 'No usable transcoding offered');
-  }
-
-  // Advertised presets aren't always servable — abr_sq 404s without auth, and
-  // legacy entries go stale. Walk down until one actually resolves.
-  let t, mediaUrl, lastErr;
-  for (const candidate of candidates) {
-    try {
-      mediaUrl = await resolveTranscoding(candidate);
-      t = candidate;
-      break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  if (!t) {
-    // Every candidate 404'd. The usual cause is that the plain transcodings are
-    // still advertised but no longer served, leaving only the encrypted streams
-    // we skip — so lead with what's actually true. Dumping the signed URL that
-    // failed told you nothing you could act on.
-    const hasDrmAlternatives = (track.media?.transcodings ?? [])
-      .some((x) => /^(ctr|cbc)-encrypted/.test(x.format?.protocol ?? ''));
-    if (hasDrmAlternatives) throw new Error(drmMessage());
-    throw new Error(`No transcoding resolved (last: ${lastErr?.message})`);
-  }
-
-  // Progressive is a single signed file — one fetch, nothing to assemble.
-  if (t.format.protocol === 'progressive') {
-    onProgress?.({ phase: 'downloading' });
-    const raw = await (await fetch(mediaUrl)).blob();
-    const out = await fromMp3Source(raw, row, container, meta, artwork, onProgress, folder);
-    return { via: `${t.preset} progressive${out.suffix}`, bytes: out.bytes };
-  }
-
-  onProgress?.({ phase: 'segments' });
-  const blob = await fetchHlsAudio(mediaUrl, (done, total) =>
-    onProgress?.({ phase: 'segments', done, total }),
-  );
-
-  const isMp3 = t.format.mime_type?.includes('mpeg');
-  if (isMp3) {
-    // HLS MP3 segments are raw frames; concatenation is already a valid MP3.
-    const out = await fromMp3Source(blob, row, container, meta, artwork, onProgress, folder);
-    return { via: `${t.preset} hls${out.suffix}`, bytes: out.bytes };
-  }
-
-  // PCM is a decode, not a remux — no point rewriting the container first.
-  if (container === 'aiff' || container === 'wav') {
-    onProgress?.({ phase: 'decoding' });
-    try {
-      const pcm = await toPcm(blob, container);
-      const out = meta ? await applyTags(pcm, container, meta, artwork) : pcm;
-      await save(out, filename(row, container, folder));
-      return { via: `${t.preset} hls → ${container}`, bytes: out.size };
-    } catch (e) {
-      onProgress?.({ phase: 'fallback', reason: `${container} decode failed: ${e.message}` });
-      // fall through to the m4a paths below rather than losing the track
-    }
-  }
-
-  // Asked for MP3 but handed AAC, which is what happens on a premium stream:
-  // decode it and encode properly rather than falling through to the remux
-  // below, which would write an .m4a for someone who asked for .mp3.
-  if (container === 'mp3') {
-    onProgress?.({ phase: 'decoding' });
-    try {
-      const mp3 = await toMp3(blob);
-      const out = meta ? await applyTags(mp3, 'mp3', meta, artwork) : mp3;
-      await save(out, filename(row, 'mp3', folder));
-      return { via: `${t.preset} hls → mp3`, bytes: out.size };
-    } catch (e) {
-      onProgress?.({ phase: 'fallback', reason: `mp3 encode failed: ${e.message}` });
-    }
-  }
-
-  if (container === 'fragmented') {
-    // No tagging here: atoms are written while moov is rebuilt, and this path
-    // exists precisely to skip that rebuild.
-    await save(blob, filename(row, 'm4a', folder));
-    return { via: `${t.preset} hls (fragmented)`, bytes: blob.size };
-  }
-
-  onProgress?.({ phase: 'remuxing' });
-  try {
-    const std = remuxToStandardMp4(await blob.arrayBuffer(), meta, artwork);
-    await save(std, filename(row, 'm4a', folder));
-    return { via: `${t.preset} hls → standard mp4`, bytes: std.size };
-  } catch (e) {
-    // The audio is already downloaded and fine — only the container rewrite
-    // failed. Keeping the fragmented file costs CDJ compatibility; throwing
-    // away a fully-downloaded track costs you the track. Save it and say so.
-    onProgress?.({ phase: 'fallback', reason: `remux failed: ${e.message}` });
-    await save(blob, filename(row, 'm4a', folder));
-    return { via: `${t.preset} hls (fragmented — remux failed)`, bytes: blob.size, remuxFailed: true };
-  }
-}
+// --------------------------------------------------------------- the lucida
 
 /**
  * The last resort: hand the track's SoundCloud URL to lucida.to.
  *
- * Only reached when nothing else worked. Opt-in, and deliberately so — every
- * other path in this tool talks to SoundCloud and nobody else, and this one
- * tells a third party what you're downloading. Off unless you turn it on.
+ * Only reached when nothing else worked. Every other path in this tool talks to
+ * SoundCloud and nobody else, and this one tells a third party what you're
+ * downloading.
  */
 async function grabViaLucida(row, opts, onProgress) {
   onProgress?.({ phase: 'lucida' });
@@ -408,7 +229,7 @@ async function grabViaLucida(row, opts, onProgress) {
   const title = (row.title ?? '').trim();
   const queries = [...new Set([
     title,
-    title.replace(/[()\[\]]/g, ' ').replace(/\s+/g, ' ').trim(),
+    title.replace(/[()[\]]/g, ' ').replace(/\s+/g, ' ').trim(),
     title.replace(/\s*[([].*$/, '').trim(),
   ].filter(Boolean))];
 
@@ -418,17 +239,15 @@ async function grabViaLucida(row, opts, onProgress) {
   });
   if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`lucida file too small (${blob.size} B)`);
 
-  // lucida returns FLAC where it can, so trust the blob's own type over the
-  // extension — there's no filename in the response to read one from.
-  const ext = FROM_MIME[(blob.type ?? '').split(';')[0].trim().toLowerCase()] ?? 'flac';
-  const out = await finalize(blob, ext, row, opts, onProgress);
+  const out = await convertOnDisk(blob, row, opts, onProgress);
 
   // Name the service, and the matched title when it differs from ours. This
   // isn't the SoundCloud upload — it's a different master from a different
   // platform, matched by metadata. For a remix or a bootleg a title match is
   // not proof of the same edit, and that is worth seeing before it's in a set
   // rather than after.
-  const differs = matched && row.title && matched.trim().toLowerCase() !== row.title.trim().toLowerCase();
+  const differs = matched && row.title
+    && matched.trim().toLowerCase() !== row.title.trim().toLowerCase();
   return {
     via: `lucida/${service} → ${out.ext}${differs ? ` · matched "${matched}"` : ''}`,
     bytes: out.bytes,
@@ -437,18 +256,12 @@ async function grabViaLucida(row, opts, onProgress) {
 }
 
 /**
- * Run `attempt`, and if it fails and the fallback is enabled, try lucida.
- *
- * The original error is what gets reported when the fallback also fails: the
- * reason SoundCloud wouldn't serve the track is the useful one, and "lucida
- * needs a browser check" on top of it would bury it.
- */
-
-/**
  * Everything after SoundCloud, in order of how good the result is.
  *
  * One fallback, because there is one worth having: a lucida match is a real
- * commercial master, often lossless.
+ * commercial master, often lossless. The original error is what gets reported
+ * when the fallback also fails — the reason SoundCloud wouldn't serve the track
+ * is the useful one, and "lucida needs a browser check" on top would bury it.
  */
 async function orLucida(attempt, row, opts, onProgress) {
   try {
@@ -489,78 +302,34 @@ async function orLucida(attempt, row, opts, onProgress) {
 export async function downloadRow(row, track, opts = {}, onProgress) {
   // lucida is a fallback for SoundCloud, and only for SoundCloud. It matches a
   // track against streaming services by name, so handing it a YouTube video
-  // means searching Tidal for "(8) slayr와 테토의 만남!? ..." — it opens a tab,
-  // finds nothing, and buries yt-dlp's actual error underneath. yt-dlp is
-  // already the last resort for these.
+  // means searching Tidal for "(8) slayr와 테토의 만남!? …" — it opens a tab,
+  // finds nothing, and buries yt-dlp's actual error underneath.
   if (row.source === 'native') return route(row, track, opts, onProgress);
 
-  // One place for the fallback, wrapping the whole routing tree: every
-  // terminal path below ends in a stream attempt, so anything that escapes
-  // here has genuinely exhausted SoundCloud.
   return orLucida(() => route(row, track, opts, onProgress), row, opts, onProgress);
 }
 
 async function route(row, track, opts = {}, onProgress) {
   const { mode = 'best', gatedPolicy = 'auto' } = opts;
 
-  // Anything yt-dlp handles goes straight out to the bridge, and the file never
-  // comes back through here — Chrome caps a native message at 1MB, so yt-dlp
-  // writes it and reports the path. Conversion and tagging happen out there
-  // too, which is why this returns rather than falling through to finalize.
-  if (row.source === 'native') {
-    onProgress?.({ phase: 'native' });
-
-    // Progress arrives as broadcasts while the worker holds the port, so it is
-    // listened for rather than passed as a callback.
-    const relay = (m) => {
-      if (m?.type === 'native:progress' && m.id === row.id) {
-        onProgress?.({ phase: 'native', text: m.text });
-      }
-    };
-    chrome.runtime.onMessage.addListener(relay);
-
-    try {
-      const res = await chrome.runtime.sendMessage({
-        type: 'native:download',
-        job: {
-          id: row.id,
-          url: row.permalink,
-          format: opts.container ?? 'mp3',
-          media: opts.media ?? 'audio',
-          folder: opts.folder,
-        },
-      });
-      if (!res?.ok) throw new Error(res?.reason ?? 'the downloader failed');
-      return { via: `yt-dlp → ${res.name.split('.').pop()}`, bytes: 0, savedAs: res.name };
-    } finally {
-      chrome.runtime.onMessage.removeListener(relay);
-    }
-  }
-
+  // Anything the bridge handles by URL — YouTube, and now SoundCloud's own
+  // streams and originals. The file never comes back through here: Chrome caps
+  // a native message at 1MB, so yt-dlp writes it and reports the path.
+  if (row.source === 'native') return viaBridge(row, opts, onProgress);
 
   if (row.previewOnly) {
     // SoundCloud offered only snipped transcodings. A truncated file in a crate
     // is worse than a missing one — you find out mid-set — so this refuses
-    // rather than saving 30 seconds of a track.
-    //
-    // States the fact and stops there. It used to add "check you are signed
-    // in", which is the same unfalsifiable advice the DRM message carried: for
-    // someone already signed in with Go+ it sends them auditing their own
-    // account for a fault that isn't there. Unlike DRM, a session genuinely can
-    // be the cause here — but so can the track simply being subscriber-only,
-    // and the message can't tell which, so it shouldn't imply it can.
-    //
-    // Not a dead end either way: orLucida catches this and tries elsewhere.
+    // rather than saving 30 seconds of a track. Not a dead end: orLucida
+    // catches this and tries elsewhere.
     throw new Error('SoundCloud only offered a 30 second preview');
   }
 
   // Known DRM — route out before trying anything here.
   //
   // Nothing below can serve an encrypted stream, so walking the chain spends a
-  // resolve round trip per candidate, plus a gate tab if it's also gated, to
-  // arrive at a failure we could already name. Worse, it reports that failure
-  // as a `warn` fallback first, so the row flickers through a reason that isn't
-  // the real one.
+  // round trip per candidate, plus a gate tab if it's also gated, to arrive at a
+  // failure we could already name.
   //
   // Two sources of "known": triage marks tracks offering nothing but encrypted
   // transcodings, and the panel folds in the remembered set — tracks that also
@@ -577,19 +346,16 @@ async function route(row, track, opts = {}, onProgress) {
     }
   }
 
-  // Stream-only: one path, no originals, no gate tabs opened at all.
-  if (mode === 'stream') return grabStream(row, track, opts, onProgress);
+  // Stream-only: never touch a gate. yt-dlp is told to take the transcodes and
+  // leave the artist's original alone, which is the one thing this mode means.
+  if (mode === 'stream') return viaBridge(row, opts, onProgress, 'stream');
 
-  if (row.bucket === BUCKET.FREE) {
-    try {
-      return await grabOriginal(row, opts, onProgress);
-    } catch (e) {
-      // Artists revoke downloads without clearing the flag; fall back rather
-      // than failing the whole batch.
-      onProgress?.({ phase: 'fallback', reason: e.message });
-      return grabStream(row, track, opts, onProgress);
-    }
-  }
+  // A free original and a stream are the same call now. yt-dlp checks
+  // `downloadable` and `has_downloads_left` itself — the same two fields triage
+  // reads — and takes the original when they're set, so the fallback this used
+  // to need for artists who revoke downloads without clearing the flag is
+  // yt-dlp's problem rather than a branch here.
+  if (row.bucket === BUCKET.FREE) return viaBridge(row, opts, onProgress, 'original');
 
   if (row.bucket === BUCKET.GATED) {
     // A store or smart-link isn't a gate with a stubborn button — it's a
@@ -597,7 +363,7 @@ async function route(row, track, opts = {}, onProgress) {
     // never succeed, so take the stream and leave the link queued for you.
     if (gatedPolicy === 'auto' && !isAutomatable(row)) {
       onProgress?.({ phase: 'fallback', reason: `${row.kind} link — not automatable` });
-      const res = await grabStream(row, track, opts, onProgress);
+      const res = await viaBridge(row, opts, onProgress);
       return { ...res, via: `${res.via} (${row.kind} link queued)`, gateFailed: true };
     }
 
@@ -606,16 +372,16 @@ async function route(row, track, opts = {}, onProgress) {
         return await grabViaGate(row, opts, onProgress);
       } catch (e) {
         // The expected case, not an exception: gate markup shifts constantly.
-        // Take the stream and keep the gate queued so it's still recoverable
-        // by hand — this is why row.url survives a failed attempt.
+        // Take the stream and keep the gate queued so it's still recoverable by
+        // hand — this is why row.url survives a failed attempt.
         onProgress?.({ phase: 'fallback', reason: e.message });
-        const res = await grabStream(row, track, opts, onProgress);
+        const res = await viaBridge(row, opts, onProgress);
         return { ...res, via: `${res.via} (gate failed)`, gateFailed: true };
       }
     }
 
-    return grabStream(row, track, opts, onProgress);
+    return viaBridge(row, opts, onProgress);
   }
 
-  return grabStream(row, track, opts, onProgress);
+  return viaBridge(row, opts, onProgress);
 }

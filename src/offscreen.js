@@ -72,7 +72,11 @@ async function downloadOne(url) {
 // This document outlives it. The panel now sends work here, watches progress
 // messages, and resyncs from `state` when it reopens, so closing it is a UI
 // event rather than a data event.
-const scPool = createLimiter(4);
+// Was 4, when each slot meant decoding and re-encoding a track on the panel's
+// own thread and more of them made the UI stutter. The work is out of process
+// now — these slots mostly wait on a socket — so the ceiling is SoundCloud's
+// patience rather than ours.
+const scPool = createLimiter(6);
 const lucidaPool = createLimiter(3);
 
 /** id -> the last status pushed, so a reopened panel can catch up. */
@@ -112,7 +116,7 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
         } else if (p.phase === 'fallback') {
           push(row.id, { ...base, text: p.reason ?? 'falling back', cls: 'warn' });
         } else {
-          const label = { remuxing: 'remuxing', decoding: 'decoding', gate: 'working the gate' };
+          const label = { remuxing: 'converting', decoding: 'decoding', gate: 'working the gate' };
           const text = p.phase === 'lucida'
             ? (p.service ? `looking on ${p.service}` : 'looking elsewhere')
             : label[p.phase] ?? 'downloading';
