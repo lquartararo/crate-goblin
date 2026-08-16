@@ -50,10 +50,18 @@ function CrateTitle({ title, tight }) {
   );
 }
 
-// Past this much scroll the masthead is just taking up room. A side panel is
-// tall and narrow; height is the scarce resource and the title has been read by
-// the time the first row is gone.
+// Two thresholds, not one, and the gap between them is the whole point.
+//
+// Collapsing shortens the header, which shortens the document, which drags
+// scrollY back down — and with a single threshold that lands you back under it,
+// so it expands, grows, and crosses again. The result is a header flickering
+// several times a second at one exact scroll position.
+//
+// Hysteresis breaks the loop: once collapsed it takes a deliberate scroll back
+// toward the top to expand, and the band between the two is wider than the
+// height the collapse removes, so the feedback can never close.
 const COLLAPSE_AT = 90;
+const EXPAND_AT = 32;
 
 export function Panel() {
   useSmoothScroll();
@@ -62,7 +70,14 @@ export function Panel() {
   useEffect(() => {
     // A plain scroll listener rather than anything Lenis-specific, so the
     // header still collapses under reduced motion, where Lenis never starts.
-    const onScroll = () => setTight(window.scrollY > COLLAPSE_AT);
+    //
+    // Reads the previous state rather than deriving from scrollY alone: which
+    // threshold applies depends on which side you are already on.
+    const onScroll = () => setTight((was) => {
+      if (!was && window.scrollY > COLLAPSE_AT) return true;
+      if (was && window.scrollY < EXPAND_AT) return false;
+      return was;
+    });
     onScroll();
     addEventListener('scroll', onScroll, { passive: true });
     return () => removeEventListener('scroll', onScroll);
