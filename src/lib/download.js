@@ -487,6 +487,13 @@ async function orLucida(attempt, row, opts, onProgress) {
  * always degrades to a real file rather than a gap in the crate.
  */
 export async function downloadRow(row, track, opts = {}, onProgress) {
+  // lucida is a fallback for SoundCloud, and only for SoundCloud. It matches a
+  // track against streaming services by name, so handing it a YouTube video
+  // means searching Tidal for "(8) slayr와 테토의 만남!? ..." — it opens a tab,
+  // finds nothing, and buries yt-dlp's actual error underneath. yt-dlp is
+  // already the last resort for these.
+  if (row.source === 'native') return route(row, track, opts, onProgress);
+
   // One place for the fallback, wrapping the whole routing tree: every
   // terminal path below ends in a stream attempt, so anything that escapes
   // here has genuinely exhausted SoundCloud.
@@ -515,7 +522,13 @@ async function route(row, track, opts = {}, onProgress) {
     try {
       const res = await chrome.runtime.sendMessage({
         type: 'native:download',
-        job: { id: row.id, url: row.permalink, format: opts.container ?? 'mp3', folder: opts.folder },
+        job: {
+          id: row.id,
+          url: row.permalink,
+          format: opts.container ?? 'mp3',
+          media: opts.media ?? 'audio',
+          folder: opts.folder,
+        },
       });
       if (!res?.ok) throw new Error(res?.reason ?? 'the downloader failed');
       return { via: `yt-dlp → ${res.name.split('.').pop()}`, bytes: 0, savedAs: res.name };

@@ -44,7 +44,14 @@ async function cachedOrLoad(url) {
  */
 async function nativeCrate(url) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
-  const title = (tab?.title ?? 'YouTube').replace(/\s*[-–]\s*YouTube\s*$/i, '').trim();
+  // YouTube prepends the unread notification count to document.title, so the
+  // tab reads "(8) Real Title - YouTube" and the 8 is about your subscriptions
+  // rather than about the video. yt-dlp writes the real title into the file
+  // either way; this is only what the panel shows while it works.
+  const title = (tab?.title ?? 'YouTube')
+    .replace(/^\s*\(\d+\)\s*/, '')
+    .replace(/\s*[-–]\s*YouTube\s*$/i, '')
+    .trim() || 'YouTube';
 
   const row = {
     id: `native:${url}`,

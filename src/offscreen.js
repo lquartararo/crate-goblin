@@ -84,7 +84,12 @@ function push(id, patch) {
   chrome.runtime.sendMessage({ type: 'queue:progress', id, patch }).catch(() => {});
 }
 
+// Batches can overlap — queue a second playlist while the first is running and
+// both are live. The tab is only free once the last one lets go of it.
+let batches = 0;
+
 async function runBatch({ rows, tracks, opts, crateTitle }) {
+  batches++;
   const byId = new Map((tracks ?? []).map((t) => [t.id, t]));
 
   for (const row of rows) {
@@ -120,6 +125,13 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
       push(row.id, { text: e.message, cls: 'err', inFlight: false, done: true });
     }
   })));
+
+  // Nothing left to look anything up for. The tab has its own idle timer as a
+  // backstop, but sitting in the strip for another 45 seconds after the work is
+  // visibly finished reads as something that was left behind.
+  if (--batches === 0) {
+    chrome.runtime.sendMessage({ type: 'lucida:release' }).catch(() => {});
+  }
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

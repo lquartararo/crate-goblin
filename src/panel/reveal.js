@@ -16,7 +16,35 @@
 // page to read, the animation shouldn't be making it briefly harder still.
 const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
-const pick = () => GLYPHS[(Math.random() * GLYPHS.length) | 0];
+// A character is replaced by one of roughly its own width, which is a layout
+// concern before it is an aesthetic one. Scrambling Hangul into Latin halves
+// the width of every character it touches, so a Korean title rewraps to a
+// different number of lines on every frame and shoves the page around while it
+// resolves. Same script in, same script out, and the box never moves.
+const BANDS = [
+  [/[A-Za-z]/, GLYPHS],
+  [/[0-9]/, '0123456789'],
+  // Random syllables from the Hangul block. Real ones, so it stays type.
+  [/[가-힣]/, null],
+  // CJK ideographs, common range.
+  [/[一-鿿]/, null],
+];
+
+const RANGES = { 2: [0xac00, 0xd7a3], 3: [0x4e00, 0x9fff] };
+
+function pick(forChar) {
+  for (let i = 0; i < BANDS.length; i++) {
+    const [test, set] = BANDS[i];
+    if (!test.test(forChar)) continue;
+    if (set) return set[(Math.random() * set.length) | 0];
+    const [lo, hi] = RANGES[i];
+    return String.fromCodePoint(lo + ((Math.random() * (hi - lo)) | 0));
+  }
+  // Punctuation, spaces, emoji, anything else: left alone. In a halftoned face
+  // these read as noise rather than as text mid-resolve, and they are usually
+  // the characters holding the title's shape together.
+  return forChar;
+}
 
 /**
  * Scramble `el`'s text, then settle it left-to-right into `text`.
@@ -47,7 +75,7 @@ export function decrypt(el, text, { speed = 18, settle = 5 } = {}) {
     let frame = 0;
     const tick = () => {
       el.textContent = chars
-        .map((c, i) => (c === ' ' ? ' ' : frame >= lockAt[i] ? c : pick()))
+        .map((c, i) => (c === ' ' ? ' ' : frame >= lockAt[i] ? c : pick(c)))
         .join('');
 
       if (++frame > total) {

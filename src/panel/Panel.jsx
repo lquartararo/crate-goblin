@@ -36,18 +36,23 @@ const Field = ({ label, children, className = '' }) => (
   </label>
 );
 
-/** The title is the only thing that animates in — everything else paints final. */
+/** The title is the only thing that animates in — everything else paints final.
+ *
+ * The final string is always in the document, holding the box; the animating
+ * copy sits on top of it and out of flow. Animating the h1's own text meant the
+ * title's height was whatever the current frame happened to wrap to, and
+ * everything below it moved for the length of the reveal. */
 function CrateTitle({ title, tight }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current && title) decrypt(ref.current, title); }, [title]);
   return (
-    <h1 ref={ref}
-        className={cn(
-          'm-0 font-display font-normal leading-[1.02] tracking-[-.015em] max-w-[20ch]',
+    <h1 className={cn(
+          'relative m-0 font-display font-normal leading-[1.02] tracking-[-.015em] max-w-[20ch]',
           'transition-[font-size,opacity] duration-300 ease-out overflow-hidden',
           tight ? 'text-[17px] opacity-0 h-0' : 'text-[clamp(30px,4.4vw,50px)]',
         )}>
-      &nbsp;
+      <span className="invisible" aria-hidden="true">{title || ' '}</span>
+      <span ref={ref} className="absolute inset-0" />
     </h1>
   );
 }
@@ -139,6 +144,9 @@ export function Panel() {
   // Only asked when it matters. On SoundCloud the bridge is irrelevant, and
   // probing it spawns a process to learn nothing.
   const needsBridge = crate.rows.some((r) => r.source === 'native');
+  // Every row goes to yt-dlp, so the controls describing SoundCloud's fallback
+  // chain have nothing to act on.
+  const isNative = crate.rows.length > 0 && crate.rows.every((r) => r.source === 'native');
   useEffect(() => {
     if (!needsBridge) return;
     chrome.runtime.sendMessage({ type: 'bridge:probe' }).then(setBridge).catch(() => {});
@@ -250,7 +258,7 @@ export function Panel() {
           )}>
             <span>
               {state === 'loading' ? 'Loading' : idle
-                ? (onSoundcloud ? 'Nothing to dig through here' : 'Not on SoundCloud')
+                ? (onSoundcloud ? 'Nothing to dig through here' : 'Nowhere to dig')
                 : `${crate.rows.length} ${crate.rows.length === 1 ? 'track' : 'tracks'}`}
             </span>
             {/* Counts the whole queue, not this crate — work continues after you
@@ -264,15 +272,16 @@ export function Panel() {
                 a signed-out session described SoundCloud's stream quality, so on
                 a page it does not apply to it answered a question nobody asked. */}
             {session?.goPlus && <span className="opacity-70">Go+ · 256k</span>}
-            {needsBridge && bridge && (
-              <span className={bridge.ok ? 'opacity-70' : 'text-err'}>
-                {bridge.ok ? `yt-dlp ${bridge.version ?? 'ready'}` : 'downloader not installed'}
-              </span>
+            {/* Only when it is broken. A version number in the masthead was
+                trivia you cannot act on; "not installed" is the one bridge
+                state that changes what you do next. */}
+            {needsBridge && bridge && !bridge.ok && (
+              <span className="text-err">downloader not installed</span>
             )}
           </div>
           <CrateTitle tight={tight} title={
             state === 'loading' ? '' : idle
-              ? (state === 'error' ? 'That did not go well' : onSoundcloud ? 'Open a crate' : 'Open SoundCloud')
+              ? (state === 'error' ? 'That did not go well' : onSoundcloud ? 'Open a crate' : 'Pick a site')
               : crate.title
           } />
         </div>
@@ -289,7 +298,7 @@ export function Panel() {
           <StatStrip rows={crate.rows} />
 
           <section className="flex flex-wrap items-end gap-x-4 gap-y-3 py-3.5 border-b-[1.5px] border-ink">
-            {(
+            {!isNative && (
             <Field label="Mode">
               <Select value={settings.mode} onValueChange={(v) => set('mode', v)}>
                 <SelectTrigger className="min-w-[160px]"><SelectValue /></SelectTrigger>
@@ -301,7 +310,7 @@ export function Panel() {
             </Field>
             )}
 
-            {settings.mode !== 'stream' && (
+            {!isNative && settings.mode !== 'stream' && (
               <Field label="Gated">
                 <Select value={settings['gated-policy']} onValueChange={(v) => set('gated-policy', v)}>
                   <SelectTrigger className="min-w-[190px]"><SelectValue /></SelectTrigger>
@@ -314,7 +323,22 @@ export function Panel() {
             )}
 
 
-            {settings.media !== 'video' && (
+            {isNative && (
+              <Field label="Take">
+                <Select value={settings.media} onValueChange={(v) => set('media', v)}>
+                  <SelectTrigger className="min-w-[130px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="audio">Audio only</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+
+            {/* `media` persists across sites, so it is only allowed to hide
+                this where it means anything. Otherwise picking Video on YouTube
+                would take the format away from SoundCloud too. */}
+            {!(isNative && settings.media === 'video') && (
             <Field label="Format">
               {/* Hint beside the control, never beneath: the row aligns on
                   flex-end, so anything stacked under one select lifts it clear

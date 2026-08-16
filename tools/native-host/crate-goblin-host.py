@@ -155,6 +155,7 @@ def download(msg):
         return send({"type": "error", "reason": "no usable URL"})
 
     fmt = str(msg.get("format") or "mp3").lower()
+    want_video = str(msg.get("media") or "audio").lower() == "video"
     # AIFF has no yt-dlp extractor, so it is produced from WAV afterwards.
     target = "wav" if fmt == "aiff" else YTDLP_FORMATS.get(fmt, "mp3")
 
@@ -170,15 +171,28 @@ def download(msg):
         cmd = [
             ytdlp,
             "--no-playlist",
-            "--extract-audio",
-            "--audio-format", target,
-            "--audio-quality", "0",
             "--embed-metadata",
-            "--embed-thumbnail",
             "--no-progress",
             "--newline",
             "-o", os.path.join(staging, "%(title)s.%(ext)s"),
         ]
+
+        if want_video:
+            # Best video with the best audio alongside it, muxed to mp4 — the
+            # one container that plays everywhere without asking questions.
+            # No thumbnail embed: for video that is a cover-art track some
+            # players show instead of the first frame.
+            cmd += [
+                "-f", "bestvideo*+bestaudio/best",
+                "--merge-output-format", "mp4",
+            ]
+        else:
+            cmd += [
+                "--extract-audio",
+                "--audio-format", target,
+                "--audio-quality", "0",
+                "--embed-thumbnail",
+            ]
 
         # yt-dlp runs ffmpeg as a child and looks it up by name, so knowing the
         # path here does nothing unless it is handed over. Without this the
@@ -228,7 +242,7 @@ def download(msg):
 
         src = os.path.join(staging, produced[0])
 
-        if fmt == "aiff":
+        if fmt == "aiff" and not want_video:
             ffmpeg = which("ffmpeg")
             if not ffmpeg:
                 return send({"type": "error", "reason": "ffmpeg is needed for AIFF and is not installed"})

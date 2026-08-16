@@ -552,6 +552,13 @@ async function ensureLucidaTab() {
   return lucidaOpening;
 }
 
+/** Close it now, rather than waiting out the idle timer. */
+function releaseLucidaTab() {
+  clearTimeout(lucidaIdle);
+  if (lucidaTab?.ours) chrome.tabs.remove(lucidaTab.id).catch(() => {});
+  lucidaTab = null;
+}
+
 function touchLucidaTab() {
   clearTimeout(lucidaIdle);
   lucidaIdle = setTimeout(() => {
@@ -644,6 +651,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // chrome.runtime's messaging subset, which is why the probe worked from here
   // and the download did not from there. The port lives in the worker and
   // progress is relayed back.
+  if (msg.type === 'lucida:release') {
+    releaseLucidaTab();
+    return false;
+  }
+
   if (msg.type === 'native:download') {
     downloadNative(msg.job, (text) => {
       chrome.runtime.sendMessage({ type: 'native:progress', id: msg.job.id, text })
