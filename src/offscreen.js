@@ -15,6 +15,7 @@ import { setHost } from './lib/host.js';
 import { loadTracks } from './lib/api.js';
 import { triage } from './lib/triage.js';
 import { downloadRow } from './lib/download.js';
+import { record } from './lib/stats.js';
 import { createLimiter } from './lib/limiter.js';
 
 const ask = (type, payload) => chrome.runtime.sendMessage({ type, ...payload });
@@ -121,9 +122,11 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
 
       const size = res.bytes ? ` · ${(res.bytes / 1e6).toFixed(1)} MB` : '';
       const failed = Boolean(res.gateFailed);
+      record({ via: res.via, ok: !failed, bytes: res.bytes });
       push(row.id, { text: `${res.via}${size}`, cls: failed ? 'warn' : 'ok',
                      inFlight: false, done: true, progress: 1 });
     } catch (e) {
+      record({ via: '', ok: false });
       push(row.id, { text: e.message, cls: 'err', inFlight: false, done: true });
     }
   })));

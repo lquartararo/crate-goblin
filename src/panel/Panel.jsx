@@ -9,6 +9,7 @@ import { Row } from './components/Row.jsx';
 import { Wash } from './components/Wash.jsx';
 import { Meter } from './components/Meter.jsx';
 import { Goblin } from './components/Goblin.jsx';
+import { About } from './components/About.jsx';
 import { Haul } from './components/Haul.jsx';
 import { maskStyle, LEVELS } from './ditherMask.js';
 import { useCrate } from './state/useCrate.js';
@@ -137,6 +138,7 @@ export function Panel() {
   const [session, setSession] = useState(null);
 
   const [bridge, setBridge] = useState(null);
+  const [about, setAbout] = useState(false);
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'session:get' }).then(setSession).catch(() => {});
@@ -227,6 +229,7 @@ export function Panel() {
 
   return (
     <div className="relative px-10 pt-[34px] pb-18" style={entrance ?? undefined}>
+      {about && <About onClose={() => setAbout(false)} />}
       {/* Total progress, pinned to the very top edge and spanning the full
           width. Above everything rather than below it: the queue scrolls, and a
           summary that scrolls away stops being a summary. */}
@@ -263,11 +266,16 @@ export function Panel() {
             as work piles up and settles as it drains. It reads as a state, not
             as a spinner, which is the point: a spinner says "wait", this says
             "busy". */}
-        <Goblin
-          size={tight ? 30 : 46}
-          energy={pending ? Math.min(1, (active || 0) / 4) : 0}
-          className="self-start mt-[3px] transition-all duration-300"
-        />
+        {/* The mark is the way in. There is nowhere else to put an about box
+            in a panel with no chrome, and a goblin is worth poking. */}
+        <button type="button" onClick={() => setAbout(true)} aria-label="About Crate Goblin"
+                className="self-start mt-[3px] flex-none bg-transparent border-0 p-0 cursor-pointer">
+          <Goblin
+            size={tight ? 30 : 46}
+            energy={pending ? Math.min(1, (active || 0) / 4) : 0}
+            className="transition-all duration-300"
+          />
+        </button>
         <div className="mr-auto">
           <div className={cn(
             'flex items-center gap-3 label-caps tracking-[.18em] text-accent',

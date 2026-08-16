@@ -43,7 +43,7 @@ const shared = {
 };
 
 export default [
-  { ignores: ['dist/**', 'node_modules/**', '.updater/**'] },
+  { ignores: ['src/vendor/**', 'dist/**', 'node_modules/**', '.updater/**'] },
 
   // Panel and content scripts: a browser, plus the extension APIs.
   {

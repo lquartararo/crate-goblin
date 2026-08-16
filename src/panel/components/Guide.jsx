@@ -1,4 +1,5 @@
 import { ProviderMark } from './ProviderMark.jsx';
+import { Stats } from './Stats.jsx';
 
 /**
  * Shown instead of the working surface when there's no crate.
@@ -119,6 +120,11 @@ export function Guide({ service, running, error }) {
           {works.map((item, i) => <Bullet key={i}>{item}</Bullet>)}
         </ul>
       )}
+
+      {/* The dig so far, where there is otherwise a lot of nothing. Below the
+          guidance rather than above it: someone who opened this on the wrong
+          page came for the way out, not for their own numbers. */}
+      {!error && <Stats />}
 
       {/* Downloads started elsewhere keep running. Hiding the working surface
           must not hide the fact that work is in flight.
