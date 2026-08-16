@@ -28,17 +28,25 @@ export function isTrackPath(pathname) {
 
 /**
  * A page with a track list worth downloading: a profile, its tracks/albums
- * tabs, or a playlist. Explicitly not /feed or /discover — those are feeds of
- * many unrelated crates, so "download this playlist" would be meaningless.
+ * tabs, or a playlist. Explicitly not /feed or a bare /discover — those are
+ * feeds of many unrelated crates, so "download this playlist" would be
+ * meaningless.
  */
 export function isCratePath(pathname) {
   const parts = segments(pathname);
-  if (!parts.length || APP_ROUTES.has(parts[0])) return false;
+  if (!parts.length) return false;
+
+  // A playlist is a playlist wherever it is filed. SoundCloud's own generated
+  // sets live at /discover/sets/<id>, and rejecting the whole of /discover took
+  // them with it — one crate with a track list and a running time is not a feed
+  // of many, whatever the first path segment says.
+  if (parts.length === 3 && parts[1] === 'sets') return true;
+
+  if (APP_ROUTES.has(parts[0])) return false;
   if (isTrackPath(pathname)) return false;
 
   if (parts.length === 1) return true;                                  // profile
-  if (parts.length === 2) return USER_SUBPAGES.has(parts[1]);           // tracks / albums
-  return parts.length === 3 && parts[1] === 'sets';                     // playlist
+  return parts.length === 2 && USER_SUBPAGES.has(parts[1]);             // tracks / albums
 }
 
 /**

@@ -752,6 +752,30 @@ await test('naming: splits artist from title only when corroborated', async () =
   assert.equal(h.title, 'Jean-Michel Jarre');
 });
 
+await test('paths: soundcloud generated sets are crates too', async () => {
+  const { isCratePath, crateKind } = await import('../src/lib/paths.js');
+  const { systemPlaylistUrn } = await import('../src/lib/api.js');
+
+  // /discover was rejected wholesale, which took these with it. They are one
+  // playlist with a track list, not a feed of many.
+  const p = '/discover/sets/personalized-tracks::pflo550:2205855319';
+  assert.equal(isCratePath(p), true);
+  assert.equal(crateKind(p), 'playlist');
+  assert.equal(
+    systemPlaylistUrn(`https://soundcloud.com${p}`),
+    'soundcloud:system-playlists:personalized-tracks::pflo550:2205855319',
+  );
+
+  // A bare feed still is one.
+  assert.equal(isCratePath('/discover'), false);
+  assert.equal(isCratePath('/feed'), false);
+  assert.equal(systemPlaylistUrn('https://soundcloud.com/discover'), null);
+
+  // An ordinary playlist keeps going through /resolve, not the urn endpoint.
+  assert.equal(isCratePath('/sumantclub/sets/remixes'), true);
+  assert.equal(systemPlaylistUrn('https://soundcloud.com/sumantclub/sets/remixes'), null);
+});
+
 await test('paths: serviceOf names the site even where there is nothing to take', async () => {
   const { serviceOf, classifyYouTube, classify } = await import('../src/lib/paths.js');
 

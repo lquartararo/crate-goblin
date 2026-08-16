@@ -122,9 +122,32 @@ export async function hydrate(tracks) {
   return tracks.map((t) => (isStub(t) ? byId.get(t.id) ?? t : t));
 }
 
+/**
+ * The URN for one of SoundCloud's own generated sets, or null.
+ *
+ * These live at /discover/sets/<slug> — personalized tracks, the weekly mixes —
+ * and /resolve returns 404 for every one of them, which is why the page looked
+ * unsupported. They have their own endpoint, keyed by URN rather than by URL.
+ *
+ * The colons stay raw. Percent-encoding the slug gets {"errors":["Invalid
+ * urn"]} back; the unencoded form parses.
+ */
+export function systemPlaylistUrn(pageUrl) {
+  try {
+    const parts = new URL(pageUrl).pathname.split('/').filter(Boolean);
+    if (parts.length !== 3 || parts[0] !== 'discover' || parts[1] !== 'sets') return null;
+    return `soundcloud:system-playlists:${decodeURIComponent(parts[2])}`;
+  } catch {
+    return null;
+  }
+}
+
 // Fetch a playlist/set/user page and return fully-hydrated track objects.
 export async function loadTracks(pageUrl) {
-  const data = await resolve(pageUrl);
+  const urn = systemPlaylistUrn(pageUrl);
+  const data = urn
+    ? await call(`/system-playlists/${urn}`)
+    : await resolve(pageUrl);
 
   if (data.kind === 'track') return [data];
 
