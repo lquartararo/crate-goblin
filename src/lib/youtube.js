@@ -19,6 +19,7 @@
 
 import { Innertube, UniversalCache } from 'youtubei.js/web';
 import { BUCKET } from './triage.js';
+import { mintPoToken } from './potoken.js';
 
 // Anything shorter is a clip or an intro, anything much longer is a mix or a
 // full set uploaded under a track's name. Neither is the record.
@@ -65,7 +66,12 @@ async function playableInfo(yt, id) {
       tried.push(`${client}: ${e?.message ?? 'failed'}`);
     }
   }
-  throw new Error(`no client returned playable formats (${tried.join('; ')})`);
+  // Every client refusing means the token was rejected or never minted, not
+  // that six different clients each had a different problem.
+  throw new Error(
+    `no client returned a media URL — YouTube requires a proof-of-origin token `
+    + `and this session has none it will accept (${tried.join('; ')})`,
+  );
 }
 
 let client = null;
@@ -187,12 +193,43 @@ async function fetchMedia(url, signal) {
   }
 }
 
+/**
+ * A session that can actually see media URLs.
+ *
+ * Built twice on purpose. The first one exists only to learn this session's
+ * visitor id, because the token has to be bound to it and there is nowhere else
+ * to read it from. The second carries the token and is the one that gets used.
+ *
+ * A failure to mint is not fatal here — the session is still usable for
+ * metadata, which is what fills the panel — so it degrades to a client that can
+ * describe a video but not fetch it, and the download says why.
+ */
 async function innertube() {
-  client ??= await Innertube.create({
+  if (client) return client;
+
+  const bare = await Innertube.create({
     cache: new UniversalCache(false),
     generate_session_locally: true,
     fetch: pageFetch,
   });
+
+  const visitorData = bare.session?.context?.client?.visitorData;
+  if (!visitorData) { client = bare; return client; }
+
+  try {
+    const poToken = await mintPoToken(visitorData, pageFetch);
+    client = await Innertube.create({
+      cache: new UniversalCache(false),
+      generate_session_locally: true,
+      fetch: pageFetch,
+      po_token: poToken,
+      visitor_data: visitorData,
+    });
+  } catch (e) {
+    console.warn('[crate] could not mint a proof-of-origin token:', e?.message ?? e);
+    client = bare;
+  }
+
   return client;
 }
 
