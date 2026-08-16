@@ -1,3 +1,5 @@
+import { ProviderMark } from './ProviderMark.jsx';
+
 /**
  * Shown instead of the working surface when there's no crate.
  *
@@ -17,8 +19,10 @@ async function openSite(url) {
 }
 
 const SITES = [
-  { url: 'https://soundcloud.com/', label: 'SoundCloud', note: 'playlists, albums, artists, single tracks' },
-  { url: 'https://www.youtube.com/', label: 'YouTube', note: 'any video or playlist' },
+  { url: 'https://soundcloud.com/', mark: 'soundcloud', label: 'SoundCloud',
+    note: 'Playlists, albums, artists, single tracks' },
+  { url: 'https://www.youtube.com/', mark: 'youtube', label: 'YouTube',
+    note: 'Any video or playlist' },
 ];
 
 const Bullet = ({ children }) => (
@@ -38,22 +42,33 @@ export function Guide({ onSoundcloud, running, error }) {
       : 'Open one of these and it picks up whatever is on the page. The panel stays put and keeps up.');
 
   return (
-    <section className="pt-7 max-w-[46ch]">
-      <p className="m-0 mb-4.5 text-[15px] leading-normal">{lead}</p>
+    // The measure belongs to the prose, not to the section. Capping the whole
+    // thing at 46ch left the buttons ending two thirds of the way across a wide
+    // panel, which reads as a layout that failed rather than one that chose.
+    <section className="pt-7">
+      <p className="m-0 mb-4.5 max-w-[46ch] text-[15px] leading-normal">{lead}</p>
 
       {!error && !onSoundcloud && (
         <div className="grid gap-2.5">
           {SITES.map((s) => (
             <button key={s.url} type="button" onClick={() => openSite(s.url)}
-                    className="group flex items-baseline gap-3 w-full text-left
-                               px-3.5 py-3 bg-wash/60 border-[1.5px] border-ink
+                    className="group flex items-center gap-3.5 w-full text-left
+                               px-4 py-3.5 bg-wash/60 border-[1.5px] border-ink
                                transition-colors duration-150
                                hover:bg-accent hover:text-paper
-                               focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
-              <span className="font-display text-[19px] leading-none">{s.label}</span>
-              <span className="ml-auto font-mono text-[10px] leading-[1.4] tracking-[.08em]
-                               uppercase opacity-60 group-hover:opacity-80">
-                {s.note}
+                               focus-visible:outline focus-visible:outline-2
+                               focus-visible:outline-offset-2 focus-visible:outline-accent">
+              <ProviderMark name={s.mark} size={34} />
+              {/* Stacked, so the note has its own line and cannot decide the
+                  button's height by wrapping. Both rows are one line each at
+                  every width, which is what kept SoundCloud taller than
+                  YouTube when the two sat side by side. */}
+              <span className="grid gap-1 min-w-0">
+                <span className="font-display text-[19px] leading-none">{s.label}</span>
+                <span className="font-mono text-[10px] leading-[1.4] tracking-[.08em]
+                                 uppercase opacity-60 group-hover:opacity-80 truncate">
+                  {s.note}
+                </span>
               </span>
             </button>
           ))}
