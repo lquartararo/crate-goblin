@@ -120,6 +120,35 @@ def sweep_staging():
         log(f"staging sweep failed: {e}")
 
 
+def discard(msg):
+    """Remove what a cancelled track left in staging.
+
+    Staging names are prefixed with the row id precisely so this can find them
+    without touching anything else in flight. Cancelling used to leave the file
+    for the hourly sweep, which meant taking a track back still cost you a file
+    you never asked for, sitting somewhere you would not look.
+    """
+    prefix = str(msg.get("id") or "")
+    if not prefix:
+        return send({"type": "done", "removed": 0})
+
+    removed = 0
+    try:
+        for name in os.listdir(STAGING):
+            if not name.startswith(prefix + "-"):
+                continue
+            try:
+                os.unlink(os.path.join(STAGING, name))
+                removed += 1
+            except OSError:
+                pass
+    except FileNotFoundError:
+        pass
+    if removed:
+        log(f"discarded {removed} staging file(s) for cancelled {prefix}")
+    send({"type": "done", "removed": removed})
+
+
 def unique(path):
     """A path that does not exist yet. Re-downloading a track for a different
     set is normal, and the older file may already be in a playlist."""
@@ -469,6 +498,8 @@ def main():
                 download(msg)
             elif kind == "convert":
                 convert(msg)
+            elif kind == "discard":
+                discard(msg)
             else:
                 send({"type": "error", "reason": f"unknown request: {kind}"})
         except Exception as e:

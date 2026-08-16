@@ -6,7 +6,7 @@ import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
 import { classify, classifyYouTube } from './lib/paths.js';
 import { currentSession } from './lib/session.js';
-import { probeBridge, downloadNative, convertNative, cancelNative } from './lib/native.js';
+import { probeBridge, downloadNative, convertNative, cancelNative, discardNative } from './lib/native.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -656,7 +656,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // wants a urn the URL does not carry. The page already has the answer, so it
   // gets asked for it.
   if (msg.type === 'native:cancel') {
-    sendResponse({ ok: cancelNative(msg.id) });
+    const stopped = cancelNative(msg.id);
+    // Whatever it had already written is not wanted either.
+    discardNative(msg.id).catch(() => {});
+    sendResponse({ ok: stopped });
     return false;
   }
 

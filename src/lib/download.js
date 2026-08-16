@@ -58,6 +58,15 @@ export function filename(row, ext, folder) {
 
 const save = (blob, name) => host.save(blob, name);
 
+/**
+ * A staging path that says which row it belongs to.
+ *
+ * The uuid alone was unattributable, so cancelling a track mid-convert left a
+ * file nobody could identify and only the hourly sweep would ever remove. The
+ * row id prefix is what lets a cancel clean up after itself immediately.
+ */
+const stagingName = (row) => `crate-goblin-staging/${row.id}-${crypto.randomUUID()}`;
+
 // Below this, whatever came back is an error page or a truncated fragment
 // rather than a track.
 const MIN_PLAUSIBLE_BYTES = 128 * 1024;
@@ -143,7 +152,7 @@ async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
  */
 async function fetchToDisk(url, row, opts, onProgress) {
   onProgress?.({ phase: 'remuxing' });
-  const id = await save(url, `crate-goblin-staging/${crypto.randomUUID()}`);
+  const id = await save(url, stagingName(row));
   return convertStaged(id, row, opts);
 }
 
@@ -156,7 +165,7 @@ async function convertOnDisk(blob, row, opts, onProgress) {
   // The folder is agreed with the host, which sweeps anything left here by a
   // conversion that died — see STAGING in crate-goblin-host.py. Renaming it
   // needs both sides.
-  const id = await save(blob, `crate-goblin-staging/${crypto.randomUUID()}`);
+  const id = await save(blob, stagingName(row));
   return convertStaged(id, row, opts);
 }
 

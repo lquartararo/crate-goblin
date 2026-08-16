@@ -16,7 +16,8 @@ import { loadTracks } from './lib/api.js';
 import { triage } from './lib/triage.js';
 import { downloadRow } from './lib/download.js';
 import { record } from './lib/stats.js';
-import { createLimiter } from './lib/limiter.js';
+import { createLimiter, createAdaptiveLimiter } from './lib/limiter.js';
+import { reportPressureTo } from './lib/lucida.js';
 
 const ask = (type, payload) => chrome.runtime.sendMessage({ type, ...payload });
 
@@ -81,10 +82,13 @@ async function downloadOne(url) {
 // now — these slots mostly wait on a socket — so the ceiling is SoundCloud's
 // patience rather than ours.
 const scPool = createLimiter(6);
-// One at a time. Three concurrent requests against one small free service is
-// what earned the 429s — a crate is dozens of tracks and every one of them was
-// asking at once. Slower, and it finishes.
-const lucidaPool = createLimiter(1);
+// Starts at three and finds its own ceiling. A fixed one is a guess in both
+// directions: three was too many for one crate and one is too few for a service
+// that is fine most days. It halves on a refusal, holds every worker behind the
+// same gate while the service recovers, and creeps back up once it stops being
+// told no.
+const lucidaPool = createAdaptiveLimiter({ start: 3, min: 1, max: 4 });
+reportPressureTo(lucidaPool);
 
 /** id -> the last status pushed, so a reopened panel can catch up. */
 const state = new Map();

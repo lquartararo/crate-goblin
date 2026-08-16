@@ -113,6 +113,13 @@ function between(html, start, end) {
  */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Set by the queue so a refusal reaches every worker, not just this one. A
+// module-level hook rather than a parameter because the retry is three call
+// sites deep and threading a limiter through all of them would put scheduling
+// into functions that only know how to talk to lucida.
+let pressure = { penalise() {}, reward() {} };
+export function reportPressureTo(limiter) { pressure = limiter; }
+
 /**
  * Retry a lucida call that came back 429.
  *
@@ -126,11 +133,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function withBackoff(fn, { tries = 4 } = {}) {
   for (let i = 1; ; i++) {
     const res = await fn();
-    if (res.status !== 429 || i >= tries) return res;
+    if (res.status !== 429) {
+      if (res.status === 200) pressure.reward();
+      return res;
+    }
+
     const stated = Number(res.headers?.['retry-after'] ?? res.retryAfter);
     const wait = Number.isFinite(stated) && stated > 0
       ? Math.min(stated * 1000, 30_000)
       : 2_000 * 2 ** (i - 1);
+
+    // Everyone stops, not just this call. The other workers are aimed at the
+    // same service and would collect the next refusal while this one waits.
+    pressure.penalise(wait);
+    if (i >= tries) return res;
     await sleep(wait);
   }
 }

@@ -85,6 +85,19 @@ export async function convertNative(job) {
   });
 }
 
+/** Clear staging files a cancelled row left behind. Never throws. */
+export async function discardNative(id) {
+  return new Promise((resolve) => {
+    let port;
+    try { port = chrome.runtime.connectNative(HOST); } catch { return resolve(false); }
+    const done = (v) => { try { port.disconnect(); } catch { /* gone */ } resolve(v); };
+    port.onMessage.addListener(() => done(true));
+    port.onDisconnect.addListener(() => { chrome.runtime.lastError; resolve(false); });
+    port.postMessage({ type: 'discard', id });
+    setTimeout(() => done(false), 4000);
+  });
+}
+
 export function forgetBridge() {
   probed = null;
 }

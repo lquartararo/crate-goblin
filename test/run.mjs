@@ -544,5 +544,47 @@ await test('paths: youtube urls classify separately from soundcloud', async () =
 // ---------------------------------------------------------------- report
 
 console.log(results.join('\n'));
+await test('limiter: adaptive one backs off on refusal and recovers', async () => {
+  const { createAdaptiveLimiter } = await import('../src/lib/limiter.js');
+  const lim = createAdaptiveLimiter({ start: 4, min: 1, max: 4 });
+
+  assert.equal(lim.limit(), 4);
+
+  // Told to slow down: halve, and again.
+  lim.penalise(0);
+  assert.equal(lim.limit(), 2);
+  lim.penalise(0);
+  assert.equal(lim.limit(), 1);
+  lim.penalise(0);
+  assert.equal(lim.limit(), 1, 'never below the floor');
+
+  // Recovery is deliberate: one clean pass is not evidence.
+  lim.reward();
+  lim.reward();
+  assert.equal(lim.limit(), 1, 'two successes are not enough');
+  lim.reward();
+  assert.equal(lim.limit(), 2, 'three in a row widens it');
+
+  // And it stops at the ceiling.
+  for (let i = 0; i < 30; i++) lim.reward();
+  assert.equal(lim.limit(), 4);
+});
+
+await test('limiter: the penalty gate holds every worker, not just the one told', async () => {
+  const { createAdaptiveLimiter } = await import('../src/lib/limiter.js');
+  const lim = createAdaptiveLimiter({ start: 3, min: 1, max: 3 });
+
+  const started = [];
+  lim.penalise(60);   // everyone waits, however they got here
+
+  const t0 = Date.now();
+  await Promise.all([1, 2, 3].map((n) => lim(async () => { started.push([n, Date.now() - t0]); })));
+
+  // Whichever order they ran in, none of them started during the cooldown.
+  for (const [, at] of started) {
+    assert.ok(at >= 55, `a worker started ${at}ms in, inside the gate`);
+  }
+});
+
 console.log(`\n  ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -150,9 +150,15 @@ export function Row({ row, job, crateTitle, onCancel }) {
           hover would be paid for the whole time. Hidden until the row is
           hovered or the button itself is focused, so a keyboard can still
           reach it. */}
-      {onCancel && !leaving && !job?.done && (
+      {/* Available whenever the row is. It used to hide once a job was done,
+          which removed it from exactly the rows that need it most: a failure
+          stays pinned by design, and there was no way to dismiss one. Same
+          control either way — stop it if it is running, take it off the list if
+          it is not. */}
+      {onCancel && !leaving && (
         <button type="button" onClick={() => onCancel(row.id)}
-                aria-label={`Cancel ${row.title}`}
+                aria-label={`${job?.done ? 'Dismiss' : 'Cancel'} ${row.title}`}
+                title={job?.done ? 'Dismiss' : 'Cancel'}
                 className="absolute top-1.5 right-1.5 z-10 grid place-items-center
                            w-6 h-6 rounded-[3px] cursor-pointer
                            bg-paper/80 border-[1.5px] border-ink/25 text-ink/70
