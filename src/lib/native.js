@@ -95,7 +95,19 @@ export function forgetBridge() {
  * A long-lived port rather than a single message, because a download reports
  * progress and can outlast any request timeout.
  */
-export function downloadNative({ url, format, media, folder, headers }, onProgress) {
+// Live downloads, so one can be stopped. Keyed by row id.
+const live = new Map();
+
+/** Stop a download in flight. The host exits when its stdin closes. */
+export function cancelNative(id) {
+  const port = live.get(id);
+  if (!port) return false;
+  try { port.disconnect(); } catch { /* already gone */ }
+  live.delete(id);
+  return true;
+}
+
+export function downloadNative({ id, url, format, media, folder, headers }, onProgress) {
   return new Promise((resolve, reject) => {
     let port;
     try {
@@ -104,10 +116,13 @@ export function downloadNative({ url, format, media, folder, headers }, onProgre
       return reject(new Error(`the downloader is not installed (${e?.message ?? e})`));
     }
 
+    if (id != null) live.set(id, port);
+
     let finished = false;
     const finish = (fn, arg) => {
       if (finished) return;
       finished = true;
+      if (id != null) live.delete(id);
       try { port.disconnect(); } catch { /* already gone */ }
       fn(arg);
     };

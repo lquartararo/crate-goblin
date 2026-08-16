@@ -111,7 +111,7 @@ function useDitherOut(leaving) {
   return leaving ? maskStyle(level) : null;
 }
 
-export function Row({ row, job, crateTitle }) {
+export function Row({ row, job, crateTitle, onCancel }) {
   const busy = job?.cls === 'working';
   const leaving = Boolean(job?.leaving);
   const mask = useDitherOut(leaving);
@@ -145,6 +145,24 @@ export function Row({ row, job, crateTitle }) {
       leaving && 'overflow-hidden !p-0 !max-h-0 !border-transparent',
       'max-h-[440px] transition-[max-height,padding] duration-[620ms] ease-in',
     )} style={mask ?? undefined}>
+      {/* Absolute, so it costs the grid no column at any width — this panel is
+          dragged narrow often and a fixed gutter for a control you see only on
+          hover would be paid for the whole time. Hidden until the row is
+          hovered or the button itself is focused, so a keyboard can still
+          reach it. */}
+      {onCancel && !leaving && !job?.done && (
+        <button type="button" onClick={() => onCancel(row.id)}
+                aria-label={`Cancel ${row.title}`}
+                className="absolute top-1.5 right-1.5 z-10 grid place-items-center
+                           w-6 h-6 rounded-[3px] cursor-pointer
+                           bg-paper/80 border-[1.5px] border-ink/25 text-ink/70
+                           opacity-0 group-hover:opacity-100 focus-visible:opacity-100
+                           transition-[opacity,color,border-color] duration-150
+                           hover:text-err hover:border-err
+                           focus-visible:outline-2 focus-visible:outline-accent"
+                dangerouslySetInnerHTML={{ __html: icon('close', 9) }} />
+      )}
+
       <Thumb src={row.artwork} alt="" />
 
       <div className="min-w-0">

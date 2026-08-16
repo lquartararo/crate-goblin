@@ -6,7 +6,7 @@ import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
 import { classify, classifyYouTube } from './lib/paths.js';
 import { currentSession } from './lib/session.js';
-import { probeBridge, downloadNative, convertNative } from './lib/native.js';
+import { probeBridge, downloadNative, convertNative, cancelNative } from './lib/native.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -655,6 +655,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // them that anything here can address: /resolve 404s, and /system-playlists
   // wants a urn the URL does not carry. The page already has the answer, so it
   // gets asked for it.
+  if (msg.type === 'native:cancel') {
+    sendResponse({ ok: cancelNative(msg.id) });
+    return false;
+  }
+
   if (msg.type === 'native:convert') {
     convertNative(msg.job).then(
       (r) => sendResponse({ ok: true, ...r }),
@@ -738,7 +743,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // Queue traffic needs the offscreen document alive before it can arrive.
-  if (msg.type === 'queue:run' || msg.type === 'queue:state' || msg.type === 'queue:forget') {
+  if (msg.type === 'queue:run' || msg.type === 'queue:state'
+      || msg.type === 'queue:forget' || msg.type === 'queue:cancel') {
     (async () => {
       try {
         await ensureOffscreen();

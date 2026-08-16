@@ -93,6 +93,11 @@ function push(id, patch) {
 // both are live. The tab is only free once the last one lets go of it.
 let batches = 0;
 
+// Rows the panel has taken back. Checked at the moment a slot frees rather than
+// when the batch was queued, which is the whole point: the queue is mostly
+// waiting, so a track cancelled while four others run genuinely never starts.
+const cancelled = new Set();
+
 async function runBatch({ rows, tracks, opts, crateTitle }) {
   batches++;
   const byId = new Map((tracks ?? []).map((t) => [t.id, t]));
@@ -105,6 +110,10 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
   const base = { crate: crateTitle, inFlight: true, done: false, leaving: false };
 
   await Promise.allSettled(rows.map((row) => (row.drmOnly ? lucidaPool : scPool)(async () => {
+    if (cancelled.has(row.id)) {
+      cancelled.delete(row.id);
+      return push(row.id, { text: 'cancelled', cls: 'ok', inFlight: false, done: true, leaving: true });
+    }
     push(row.id, { ...base, row, text: 'starting', cls: 'working' });
     try {
       // The folder is the caller's call — it knows whether this is a crate or
@@ -131,6 +140,11 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
                      inFlight: false, done: true, progress: 1 });
     } catch (e) {
       record({ via: '', ok: false });
+      // A track you took back is not a track that failed.
+      if (cancelled.has(row.id)) {
+        cancelled.delete(row.id);
+        return push(row.id, { text: 'cancelled', cls: 'ok', inFlight: false, done: true, leaving: true });
+      }
       push(row.id, { text: e.message, cls: 'err', inFlight: false, done: true });
     }
   })));
@@ -144,6 +158,18 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'queue:cancel') {
+    cancelled.add(msg.id);
+    // Already downloading: cut the port. The host reads stdin, so closing it
+    // ends the process and takes yt-dlp with it. A row still waiting for a slot
+    // never starts, which needs nothing else.
+    chrome.runtime.sendMessage({ type: 'native:cancel', id: msg.id }).catch(() => {});
+    const job = state.get(msg.id);
+    if (!job?.inFlight) push(msg.id, { text: 'cancelled', cls: 'ok', inFlight: false, done: true, leaving: true });
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg?.type === 'queue:run') {
     // Answers immediately. The batch outlives the message, and the panel wants
     // to know the work was accepted, not wait for a crate to finish.

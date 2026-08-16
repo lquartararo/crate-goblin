@@ -84,17 +84,25 @@ export function useJobs() {
   /**
    * Start a row's exit: mark it leaving so it can animate, then drop it.
    *
-   * Only successes expire. A failure that vanished on a timer would take the
-   * reason with it, and the whole point of showing a failure is that you get to
-   * decide what to do about it.
+   * Anything that produced a file expires. Only a real failure stays.
+   *
+   * This used to keep 'warn' rows too, which sounds right and is not: a warn is
+   * a track that downloaded, just not by the route we would have picked — the
+   * gate refused and the stream answered. There is a file on disk and nothing
+   * to decide, so leaving it pinned meant a crate of perfectly good tracks
+   * looking like a list of problems. It lingers longer than a clean success so
+   * the reason is readable, then goes.
+   *
+   * An 'err' row is different and still stays: no file, and the whole point of
+   * showing it is that you get to decide what to do about it.
    */
-  const expiring = useCallback((id) => {
+  const expiring = useCallback((id, cls) => {
     if (timers.current.get(id)?.linger) return;   // already on its way out
     const linger = setTimeout(() => {
       setStatus(id, undefined, undefined, { leaving: true });
       const strip = setTimeout(() => remove(id), DISSOLVE_MS);
       timers.current.set(id, { ...(timers.current.get(id) ?? {}), strip });
-    }, LINGER_MS);
+    }, cls === 'warn' ? LINGER_MS * 3 : LINGER_MS);
     timers.current.set(id, { ...(timers.current.get(id) ?? {}), linger });
   }, [remove, setStatus]);
 
@@ -114,7 +122,7 @@ export function useJobs() {
         for (const j of res.jobs) {
           seen.current.add(j.id);
           if (j.done) { finished.current.add(j.id); outcomes.current.set(j.id, j.cls ?? 'ok'); }
-          if (j.done && j.cls === 'ok') expiring(j.id);
+          if (j.done && j.cls !== 'err') expiring(j.id, j.cls);
         }
         setCounts({ seen: seen.current.size, done: finished.current.size });
       })
@@ -135,7 +143,7 @@ export function useJobs() {
         return next;
       });
       // A clean finish is the only thing that leaves on its own.
-      if (msg.patch?.done && msg.patch?.cls === 'ok') expiring(msg.id);
+      if (msg.patch?.done && msg.patch?.cls !== 'err') expiring(msg.id, msg.patch.cls);
     };
 
     chrome.runtime.onMessage.addListener(onMessage);
@@ -188,6 +196,20 @@ export function useJobs() {
     setCounts({ seen: 0, done: 0 });
   }, [pending, counts.seen]);
 
+  /**
+   * Take a track back out of the queue.
+   *
+   * Genuine for anything still waiting — most of a queue, most of the time —
+   * and for a download already running the native port is cut, which ends the
+   * host and yt-dlp with it. A gate or lucida attempt mid-flight is the one
+   * case that finishes anyway; its file still lands, and the row goes.
+   */
+  const cancel = useCallback((id) => {
+    setStatus(id, 'cancelled', 'ok', { inFlight: false, done: true, leaving: true });
+    setTimeout(() => remove(id), DISSOLVE_MS);
+    chrome.runtime.sendMessage({ type: 'queue:cancel', id }).catch(() => {});
+  }, [remove, setStatus]);
+
   /** Hand a batch to the offscreen document. Resolves once it's accepted. */
   const run = useCallback(async (rows, tracks, opts, crateTitle) => {
     // Maps don't survive runtime messaging, which is JSON, and only the tracks
@@ -204,5 +226,6 @@ export function useJobs() {
     return { skipped: res?.skipped ?? 0 };
   }, []);
 
-  return { jobs, active, pending, fraction, run, setStatus, remove, haul, clearHaul: () => setHaul(null) };
+  return { jobs, active, pending, fraction, run, cancel, setStatus, remove,
+           haul, clearHaul: () => setHaul(null) };
 }

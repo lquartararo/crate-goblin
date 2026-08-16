@@ -31,9 +31,21 @@ const CELLS = {
     [5, 0, 1, 12], [6, 4, 1, 4], [7, 2, 1, 8], [8, 5, 1, 2],
     [9, 3, 1, 6], [10, 5, 2, 2],
   ],
-  // Shopfront awning — money is involved.
+  // A note. Money is involved.
+  //
+  // Was a shopfront awning, which rendered as a solid 10x10 slab: its door was
+  // drawn in the same ink as its body, and these icons have no knockout, so the
+  // one piece of internal structure was invisible. Every other glyph here reads
+  // by its negative space — the arrow's stem, the padlock's shackle, the gaps
+  // in the waveform — and that one had none.
   store: [
-    [1, 1, 10, 2], [0, 3, 12, 2], [1, 5, 10, 6], [4, 7, 4, 4],
+    [1, 3, 10, 1], [1, 8, 10, 1], [1, 4, 1, 4], [10, 4, 1, 4], [5, 5, 2, 2],
+  ],
+  // Two diagonals. `error` is a single one and reads as a slash, which is a
+  // different thing to say.
+  close: [
+    [1, 1, 2, 2], [3, 3, 2, 2], [5, 5, 2, 2], [7, 7, 2, 2], [9, 9, 2, 2],
+    [9, 1, 2, 2], [7, 3, 2, 2], [3, 7, 2, 2], [1, 9, 2, 2],
   ],
   check: [[1, 6, 2, 2], [3, 8, 2, 2], [5, 6, 2, 2], [7, 4, 2, 2], [9, 2, 2, 2]],
   error: [

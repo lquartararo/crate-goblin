@@ -131,7 +131,7 @@ export function Panel() {
   }, []);
 
   const { state, crate, error } = useCrate();
-  const { jobs, active, pending, fraction, run, haul, clearHaul } = useJobs();
+  const { jobs, active, pending, fraction, run, cancel, haul, clearHaul } = useJobs();
   const { settings, set, opts } = useSettings();
 
   const [log, setLog] = useState([]);
@@ -408,7 +408,8 @@ export function Panel() {
           would be answering a question nobody asked. */}
       <div className="@container mt-1">
         {queue.map((job) => (
-          <Row key={job.row.id} row={job.row} job={job} crateTitle={crate.title} />
+          <Row key={job.row.id} row={job.row} job={job} crateTitle={crate.title}
+               onCancel={cancel} />
         ))}
       </div>
 
