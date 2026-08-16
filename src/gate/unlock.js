@@ -154,6 +154,22 @@ const dismissConsent = () => {
   return false;
 };
 
+/**
+ * Whether this page is selling the track rather than gating it.
+ *
+ * Only consulted once nothing free has been found, so a store that also offers
+ * a free download is unaffected — that case is the reason stores are attempted
+ * at all. Prices are matched loosely because currency and placement vary; the
+ * purchase controls are the stronger signal and either alone is enough.
+ */
+function looksPaidOnly() {
+  const text = (document.body?.innerText ?? '').slice(0, 20_000);
+  const priced = /(?:[$£€]\s?\d|\d+[.,]\d{2}\s?(?:usd|eur|gbp))/i.test(text);
+  const buying = [...document.querySelectorAll('button, a, [role="button"], input[type="submit"]')]
+    .some((el) => visible(el) && PURCHASE_TEXT.test((el.innerText || el.value || '').trim()));
+  return priced || buying;
+}
+
 // ------------------------------------------------------------------ attempt
 
 async function attempt() {
@@ -190,6 +206,13 @@ async function attempt() {
     // file arrives by a link in an inbox nothing here can read. Falling back
     // costs a little quality and no personal data.
     if (++emptyPasses >= EMPTY_PASSES_BEFORE_GIVING_UP) {
+      // A store page with a price on it and nothing free is not a gate that
+      // failed, it is a gate that was never there. Worth saying plainly, and
+      // worth not spending the full timeout on: a Bandcamp release at £7 has no
+      // free download to find however long we wait.
+      if (looksPaidOnly()) {
+        return { ok: false, reason: 'for sale — no free download offered', did };
+      }
       return { ok: false, reason: 'no download control found on this gate', did };
     }
     await sleep(SETTLE_MS);

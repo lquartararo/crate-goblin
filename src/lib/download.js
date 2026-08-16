@@ -180,7 +180,14 @@ async function grabViaGate(row, opts, onProgress) {
     url: row.url,
     filename: filename(row, '').replace(/\.$/, ''),
   });
-  if (!res?.ok) throw new Error(res?.reason || 'gate did not yield a file');
+  if (!res?.ok) {
+    // unlock.js has always reported the trail of what it managed to do and this
+    // threw it away, so every gate failure read the same regardless of whether
+    // it found nothing, clicked and got nothing back, or hit a paywall. The
+    // difference is the whole diagnosis.
+    const trail = res?.did?.length ? ` — ${res.did.join(', ')}` : '';
+    throw new Error(`${res?.reason || 'gate did not yield a file'}${trail}`);
+  }
 
   // The gate produced a blob:/data: download from its own page, which we can't
   // refetch from here. Rare now that http(s) downloads are intercepted, but when
@@ -395,7 +402,13 @@ async function route(row, track, opts = {}, onProgress) {
         // Say which half broke. `unlocked, then ${reason}` means the gate gave
         // up a file and something on our side lost it, which is a bug rather
         // than a fact about the internet.
-        const why = e.afterUnlock ? `unlocked, then ${e.message}` : 'gate failed';
+        const why = e.afterUnlock
+          ? `unlocked, then ${e.message}`
+          // Was the bare word "failed". A gate that is actually a shop, one
+          // whose markup moved, and one that clicked through to nothing are
+          // three different situations, and only the middle one is worth
+          // anyone's time.
+          : e.message.replace(/\s+—\s+/g, ' · ');
         return { ...res, via: `${res.via} (${why})`, gateFailed: true };
       }
     }
