@@ -15,7 +15,6 @@ import { BUCKET, isAutomatable } from './triage.js';
 import { host } from './host.js';
 import { currentSession } from './session.js';
 import { fetchTrack } from './lucida.js';
-import { downloadNative } from './native.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
 // slash in a title will silently nest it into a folder you didn't ask for.
@@ -503,11 +502,26 @@ async function route(row, track, opts = {}, onProgress) {
   // too, which is why this returns rather than falling through to finalize.
   if (row.source === 'native') {
     onProgress?.({ phase: 'native' });
-    const { name } = await downloadNative(
-      { url: row.permalink, format: opts.container ?? 'mp3', folder: opts.folder },
-      (text) => onProgress?.({ phase: 'native', text }),
-    );
-    return { via: `yt-dlp → ${name.split('.').pop()}`, bytes: 0, savedAs: name };
+
+    // Progress arrives as broadcasts while the worker holds the port, so it is
+    // listened for rather than passed as a callback.
+    const relay = (m) => {
+      if (m?.type === 'native:progress' && m.id === row.id) {
+        onProgress?.({ phase: 'native', text: m.text });
+      }
+    };
+    chrome.runtime.onMessage.addListener(relay);
+
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'native:download',
+        job: { id: row.id, url: row.permalink, format: opts.container ?? 'mp3', folder: opts.folder },
+      });
+      if (!res?.ok) throw new Error(res?.reason ?? 'the downloader failed');
+      return { via: `yt-dlp → ${res.name.split('.').pop()}`, bytes: 0, savedAs: res.name };
+    } finally {
+      chrome.runtime.onMessage.removeListener(relay);
+    }
   }
 
 

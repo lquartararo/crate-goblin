@@ -6,7 +6,7 @@ import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
 import { classify, classifyYouTube } from './lib/paths.js';
 import { currentSession } from './lib/session.js';
-import { probeBridge } from './lib/native.js';
+import { probeBridge, downloadNative } from './lib/native.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -637,6 +637,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // than letting the first YouTube track fail with something cryptic.
   if (msg.type === 'bridge:probe') {
     probeBridge().then(sendResponse, () => sendResponse({ ok: false, reason: 'probe failed' }));
+    return true;
+  }
+
+  // connectNative is not available in an offscreen document — it only gets
+  // chrome.runtime's messaging subset, which is why the probe worked from here
+  // and the download did not from there. The port lives in the worker and
+  // progress is relayed back.
+  if (msg.type === 'native:download') {
+    downloadNative(msg.job, (text) => {
+      chrome.runtime.sendMessage({ type: 'native:progress', id: msg.job.id, text })
+        .catch(() => {});
+    }).then(
+      (r) => sendResponse({ ok: true, ...r }),
+      (e) => sendResponse({ ok: false, reason: e?.message ?? String(e) }),
+    );
     return true;
   }
 

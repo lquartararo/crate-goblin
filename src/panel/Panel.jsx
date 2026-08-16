@@ -263,11 +263,6 @@ export function Panel() {
             {/* Why the quality is what it is. "128k because you're signed out"
                 and "128k because that's all there was" look identical in a
                 downloads folder, and only one of them is worth acting on. */}
-            {session && !session.goPlus && (
-              <span className="opacity-55">
-                {session.signedIn ? 'standard quality' : 'signed out · 128k'}
-              </span>
-            )}
             {session?.goPlus && <span className="opacity-70">Go+ · 256k</span>}
             {needsBridge && bridge && (
               <span className={bridge.ok ? 'opacity-70' : 'text-err'}>
