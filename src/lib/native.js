@@ -53,7 +53,7 @@ export function forgetBridge() {
  * A long-lived port rather than a single message, because a download reports
  * progress and can outlast any request timeout.
  */
-export function downloadNative({ url, format, folder }, onProgress) {
+export function downloadNative({ url, format, media, folder }, onProgress) {
   return new Promise((resolve, reject) => {
     let port;
     try {
@@ -81,6 +81,6 @@ export function downloadNative({ url, format, folder }, onProgress) {
       finish(reject, new Error(err?.message ?? 'the downloader stopped unexpectedly'));
     });
 
-    port.postMessage({ type: 'download', url, format, folder });
+    port.postMessage({ type: 'download', url, format, media, folder });
   });
 }

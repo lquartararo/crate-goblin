@@ -198,7 +198,15 @@ export function Panel() {
       }
     }
 
-    const { skipped } = await run(queued, crate.tracks, opts, crate.title);
+    // A folder per crate, and nothing for a single track. Filing one file under
+    // a directory named after itself just adds a click to reach it — and on a
+    // SoundCloud single the title was the literal string "Single track", so the
+    // folder was not even named after the song.
+    const { skipped } = await run(
+      queued, crate.tracks,
+      { ...opts, folder: crate.collection ? crate.title : null },
+      crate.title,
+    );
     if (skipped) setLog((l) => [...l, `${skipped} already downloading — left alone`]);
     setBusy(false);
   }

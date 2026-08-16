@@ -94,7 +94,9 @@ const triageable = (url) => {
  */
 export function useCrate() {
   const [state, setState] = useState('loading');
-  const [crate, setCrate] = useState({ title: '', rows: [], tracks: new Map(), url: null });
+  const [crate, setCrate] = useState({
+    title: '', rows: [], tracks: new Map(), url: null, collection: false,
+  });
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -104,13 +106,18 @@ export function useCrate() {
     // triage rules would reject them.
     if (url && nativeTarget(url)) {
       const { title, rows } = await nativeCrate(url);
-      setCrate({ url, title, rows, tracks: new Map(rows.map((r) => [r.id, r])) });
+      setCrate({
+        url, title, rows,
+        // A YouTube playlist is a crate; a single video is not.
+        collection: nativeTarget(url).kind === 'crate',
+        tracks: new Map(rows.map((r) => [r.id, r])),
+      });
       setState('ready');
       return;
     }
 
     if (!url || !triageable(url)) {
-      setCrate({ title: '', rows: [], tracks: new Map(), url });
+      setCrate({ title: '', rows: [], tracks: new Map(), url, collection: false });
       setState('idle');
       return;
     }
@@ -125,6 +132,9 @@ export function useCrate() {
 
       setCrate({
         url,
+        // A bare array is one track; anything else came from a playlist,
+        // album or profile and has a name worth filing under.
+        collection: !Array.isArray(result),
         title: Array.isArray(result) ? 'Single track' : result.title,
         rows: triage(list, { album }).rows,
         tracks: new Map(list.filter(Boolean).map((t) => [t.id, t])),

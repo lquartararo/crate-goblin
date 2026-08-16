@@ -102,7 +102,9 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
   await Promise.allSettled(rows.map((row) => (row.drmOnly ? lucidaPool : scPool)(async () => {
     push(row.id, { ...base, row, text: 'starting', cls: 'working' });
     try {
-      const res = await downloadRow(row, byId.get(row.id), { ...opts, folder: crateTitle }, (p) => {
+      // The folder is the caller's call — it knows whether this is a crate or
+      // one track. crateTitle is only the label on the row.
+      const res = await downloadRow(row, byId.get(row.id), opts, (p) => {
         if (p.phase === 'segments' && p.total) {
           push(row.id, { ...base, text: `segments ${p.done}/${p.total}`, cls: 'working',
                          progress: p.done / p.total });
