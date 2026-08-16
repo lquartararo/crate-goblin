@@ -79,6 +79,17 @@ if ! command -v ffmpeg >/dev/null; then
   else echo "    not installed and no brew; AIFF from YouTube will be unavailable." >&2; fi
 fi
 
+# YouTube now serves a JS challenge that yt-dlp solves by running it in deno.
+# Skipping this does not produce an error, it just quietly costs you the good
+# formats, which is the worst way for a dependency to be missing.
+if ! command -v deno >/dev/null; then
+  echo "==> deno (yt-dlp needs it to solve YouTube's JS challenge)"
+  if command -v brew >/dev/null; then brew install deno
+  else curl -fsSL https://deno.land/install.sh | DENO_INSTALL="$HOME/.local" sh -s -- -y >/dev/null 2>&1 \
+       && echo "    installed to ~/.local/bin/deno" \
+       || echo "    could not install deno; YouTube audio will be lower quality." >&2; fi
+fi
+
 # ------------------------------------------------------------ native bridge
 echo "==> native bridge"
 HOST_PATH="$REPO/tools/native-host/crate-goblin-host.py"

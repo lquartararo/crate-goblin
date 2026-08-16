@@ -27,10 +27,57 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 
 # Chrome refuses a single message over 1MB, so audio never travels this way.
 # yt-dlp writes the file itself and only the path comes back.
 MAX_MESSAGE = 1024 * 1024
+
+# Where the tools actually live. Chrome starts this process with a nearly empty
+# PATH, and yt-dlp spawns ffmpeg and deno by name off that PATH — so finding
+# them here is not enough, they have to be findable by the child too.
+BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+            os.path.expanduser("~/.local/bin"), os.path.expanduser("~/.bun/bin")]
+
+# A real file, because stdout is the protocol channel and cannot carry a word of
+# this. The extension reports the failing line itself; this is for the rest.
+LOG = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", ".updater", "host.log"))
+
+
+def log(line):
+    try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        with open(LOG, "a") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {line}\n")
+    except Exception:
+        pass  # logging must never be the reason a download fails
+
+
+def js_runtime_args():
+    """Tell yt-dlp about a JS runtime it would not find on Chrome's PATH.
+
+    YouTube serves a challenge script that has to be executed to get the good
+    formats, and deno is the default because it is the one runtime that denies
+    that script the filesystem and network unless told otherwise — it is
+    adversarial code by design. node and bun are accepted as fallbacks so a
+    machine without deno degrades in quality rather than in security silently,
+    but deno is what install-updater.sh puts there. yt-dlp's own priority order
+    is deno, node, quickjs, bun.
+    """
+    args = []
+    for name in ("deno", "node", "quickjs", "bun"):
+        path = which(name)
+        if path:
+            args += ["--js-runtimes", f"{name}:{path}"]
+    return args
+
+
+def child_env():
+    """yt-dlp's environment, with a PATH it can actually find ffmpeg on."""
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join(BIN_DIRS + [env.get("PATH", "")])
+    return env
 
 # yt-dlp extracts to these directly. AIFF is absent from its list, so it is
 # reached with one ffmpeg pass afterwards — and it matters, because WAV is the
@@ -60,7 +107,7 @@ def which(name):
     found = shutil.which(name)
     if found:
         return found
-    for base in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", os.path.expanduser("~/.local/bin")):
+    for base in BIN_DIRS:
         candidate = os.path.join(base, name)
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
@@ -75,18 +122,24 @@ def safe_component(name):
 
 def probe():
     ytdlp, ffmpeg = which("yt-dlp"), which("ffmpeg")
+    # YouTube hands out a JS challenge that has to be run to get the good
+    # formats. Without a runtime nothing errors — the audio just quietly gets
+    # worse, so it is worth reporting which one, if any, was found.
     return {
         "type": "hello",
         "ok": bool(ytdlp),
         "ytdlp": ytdlp,
         "ffmpeg": ffmpeg,
+        "js": next((n for n in ("deno", "node", "quickjs", "bun") if which(n)), None),
+        "log": LOG,
         "version": run_version(ytdlp) if ytdlp else None,
     }
 
 
 def run_version(ytdlp):
     try:
-        out = subprocess.run([ytdlp, "--version"], capture_output=True, text=True, timeout=15)
+        out = subprocess.run([ytdlp, "--version"], capture_output=True, text=True,
+                             timeout=15, env=child_env())
         return out.stdout.strip() or None
     except Exception:
         return None
@@ -125,25 +178,53 @@ def download(msg):
             "--no-progress",
             "--newline",
             "-o", os.path.join(staging, "%(title)s.%(ext)s"),
-            url,
         ]
 
+        # yt-dlp runs ffmpeg as a child and looks it up by name, so knowing the
+        # path here does nothing unless it is handed over. Without this the
+        # audio downloads and then the conversion dies, which is exactly the
+        # failure that looks like nothing happened.
+        ffmpeg = which("ffmpeg")
+        if ffmpeg:
+            cmd += ["--ffmpeg-location", os.path.dirname(ffmpeg)]
+
+        cmd += js_runtime_args()
+
+        cmd.append(url)
+
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, env=child_env())
         except Exception as e:
+            log(f"could not start yt-dlp: {e}")
             return send({"type": "error", "reason": f"could not start yt-dlp: {e}"})
 
+        # Errors arrive on this same stream, so they are kept rather than
+        # filtered away. Previously only progress lines were forwarded and the
+        # reason for a failure was read and discarded.
+        tail = []
         for line in proc.stdout:
             line = line.strip()
+            if not line:
+                continue
+            tail.append(line)
+            del tail[:-40]
             if line.startswith("[download]") or line.startswith("[Extract"):
                 send({"type": "progress", "text": line[:180]})
 
         if proc.wait() != 0:
-            return send({"type": "error", "reason": "yt-dlp failed, see the extension log"})
+            for line in tail:
+                log(line)
+            # The last ERROR line is the one worth showing; the rest is noise.
+            errors = [l for l in tail if l.startswith("ERROR:")]
+            reason = errors[-1][len("ERROR:"):].strip() if errors else (tail[-1] if tail else "yt-dlp failed")
+            return send({"type": "error", "reason": reason[:300], "log": LOG})
 
         produced = [f for f in os.listdir(staging) if not f.startswith(".")]
         if not produced:
-            return send({"type": "error", "reason": "yt-dlp produced no file"})
+            for line in tail:
+                log(line)
+            return send({"type": "error", "reason": "yt-dlp produced no file", "log": LOG})
 
         src = os.path.join(staging, produced[0])
 
@@ -152,9 +233,10 @@ def download(msg):
             if not ffmpeg:
                 return send({"type": "error", "reason": "ffmpeg is needed for AIFF and is not installed"})
             aiff = os.path.splitext(src)[0] + ".aiff"
-            r = subprocess.run([ffmpeg, "-y", "-i", src, aiff], capture_output=True)
+            r = subprocess.run([ffmpeg, "-y", "-i", src, aiff], capture_output=True, env=child_env())
             if r.returncode != 0:
-                return send({"type": "error", "reason": "AIFF conversion failed"})
+                log(r.stderr.decode("utf-8", "replace")[-2000:])
+                return send({"type": "error", "reason": "AIFF conversion failed", "log": LOG})
             src = aiff
 
         final = os.path.join(out_dir, os.path.basename(src))
