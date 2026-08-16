@@ -638,6 +638,43 @@ function touchYouTubeTab() {
   }, YT_IDLE_MS);
 }
 
+/**
+ * Fetch bytes from inside a YouTube page.
+ *
+ * Separate from the JSON proxy because the result has to cross runtime
+ * messaging, which is JSON — so it goes as base64 and pays a third in size.
+ * Only used when a direct fetch has already failed, since for a whole track
+ * that overhead is real.
+ */
+async function youtubePageBytes(url) {
+  const tab = await ensureYouTubeTab();
+  touchYouTubeTab();
+
+  const [out] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: async (u) => {
+      try {
+        const r = await fetch(u, { credentials: 'include' });
+        if (!r.ok) return { ok: false, reason: `media ${r.status}` };
+        const buf = new Uint8Array(await r.arrayBuffer());
+        // Chunked: String.fromCharCode on a multi-megabyte spread blows the
+        // argument limit and throws RangeError.
+        let bin = '';
+        for (let i = 0; i < buf.length; i += 0x8000) {
+          bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+        }
+        return { ok: true, type: r.headers.get('content-type') ?? '', b64: btoa(bin) };
+      } catch (e) {
+        return { ok: false, reason: e?.message ?? String(e) };
+      }
+    },
+    args: [url],
+  });
+
+  if (!out?.result?.ok) throw new Error(out?.result?.reason ?? 'youtube page fetch failed');
+  return out.result;
+}
+
 async function youtubePageFetch(url, init) {
   const tab = await ensureYouTubeTab();
   touchYouTubeTab();
@@ -729,6 +766,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, reason: e?.message ?? String(e) });
       }
     })();
+    return true;
+  }
+
+  if (msg.type === 'youtube:bytes') {
+    youtubePageBytes(msg.url).then(
+      (r) => sendResponse({ ok: true, ...r }),
+      (e) => sendResponse({ ok: false, reason: e?.message ?? String(e) }),
+    );
     return true;
   }
 

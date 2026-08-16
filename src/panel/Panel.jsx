@@ -149,6 +149,11 @@ export function Panel() {
   // handful of rows that were actually doing something.
   const queue = [...jobs.values()].filter((j) => j.row);
 
+  // Mode and Gated describe SoundCloud's buckets and gate automation. On a
+  // YouTube crate neither one has anything to act on, and a control that
+  // cannot change the outcome is worse than no control.
+  const onYouTubeCrate = crate.rows.some((r) => r.source === 'youtube');
+
 
   async function onDownload() {
     setBusy(true);
@@ -278,6 +283,7 @@ export function Panel() {
           <StatStrip rows={crate.rows} />
 
           <section className="flex flex-wrap items-end gap-x-4 gap-y-3 py-3.5 border-b-[1.5px] border-ink">
+            {!onYouTubeCrate && (
             <Field label="Mode">
               <Select value={settings.mode} onValueChange={(v) => set('mode', v)}>
                 <SelectTrigger className="min-w-[160px]"><SelectValue /></SelectTrigger>
@@ -287,8 +293,9 @@ export function Panel() {
                 </SelectContent>
               </Select>
             </Field>
+            )}
 
-            {settings.mode !== 'stream' && (
+            {!onYouTubeCrate && settings.mode !== 'stream' && (
               <Field label="Gated">
                 <Select value={settings['gated-policy']} onValueChange={(v) => set('gated-policy', v)}>
                   <SelectTrigger className="min-w-[190px]"><SelectValue /></SelectTrigger>
@@ -300,7 +307,7 @@ export function Panel() {
               </Field>
             )}
 
-            {crate.rows.some((r) => r.source === 'youtube') && (
+            {onYouTubeCrate && (
               <Field label="Take">
                 <Select value={settings.media} onValueChange={(v) => set('media', v)}>
                   <SelectTrigger className="min-w-[130px]"><SelectValue /></SelectTrigger>

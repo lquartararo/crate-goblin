@@ -102,6 +102,44 @@ async function pageFetch(input, init) {
   return out;
 }
 
+/**
+ * Fetch the media itself.
+ *
+ * Direct first, because a track is megabytes and the page proxy has to base64
+ * it across runtime messaging. Through the page only when that fails, which is
+ * the same shape the InnerTube calls needed.
+ *
+ * A bare "Failed to fetch" is a TypeError with nothing attached, so the URL is
+ * checked here rather than left to produce one: an undefined return from
+ * decipher() becomes fetch("undefined"), a relative URL, and a network error
+ * that names nothing.
+ */
+async function fetchMedia(url, signal) {
+  if (typeof url !== 'string' || !/^https?:/i.test(url)) {
+    throw new Error(`decipher produced no usable URL (${JSON.stringify(url)?.slice(0, 60)})`);
+  }
+
+  try {
+    const res = await fetch(url, { signal });
+    if (res.ok) return res.blob();
+    // A status means it reached YouTube, so the page will not do better.
+    throw new Error(`YouTube media ${res.status}`);
+  } catch (e) {
+    if (/^YouTube media \d+$/.test(e.message)) throw e;
+
+    const host = (() => { try { return new URL(url).hostname; } catch { return 'unknown host'; } })();
+    const res = await chrome.runtime.sendMessage({ type: 'youtube:bytes', url }).catch(() => null);
+    if (!res?.ok) {
+      throw new Error(`could not reach ${host} directly (${e.message}) or via the page (${res?.reason ?? 'no reply'})`);
+    }
+
+    const bin = atob(res.b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: res.type || 'application/octet-stream' });
+  }
+}
+
 async function innertube() {
   client ??= await Innertube.create({
     cache: new UniversalCache(false),
@@ -214,11 +252,8 @@ export async function fetchFromYouTube(query, { durationMs, onProgress, signal }
   const info = await yt.getBasicInfo(picked.id);
 
   const { format } = pickFormat(info, 'audio');
-  const res = await fetch(format.decipher(yt.session.player), { signal });
-  if (!res.ok) throw new Error(`YouTube audio ${res.status}`);
-
   return {
-    blob: await res.blob(),
+    blob: await fetchMedia(format.decipher(yt.session.player), signal),
     title: info?.basic_info?.title ?? picked.title?.text ?? query,
     videoId: picked.id,
   };
@@ -331,12 +366,11 @@ export async function fetchRowMedia(row, { want = 'audio', onProgress, signal } 
   const info = await yt.getBasicInfo(id);
   const { format, kind } = pickFormat(info, want);
 
-  const res = await fetch(format.decipher(yt.session.player), { signal });
-  if (!res.ok) throw new Error(`YouTube media ${res.status}`);
+  const blob = await fetchMedia(format.decipher(yt.session.player), signal);
 
   // The container, from what YouTube said it is rather than from the codec.
   const mime = String(format.mime_type ?? '');
   const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'mp4' : 'webm';
 
-  return { blob: await res.blob(), ext, kind };
+  return { blob, ext, kind };
 }
