@@ -165,7 +165,7 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
       // Kept out of the row and out of the way, but not thrown away — this is
       // the only trace of which route was tried first.
       if (res.note) console.debug('[crate] took the fallback:', row.title, '—', res.note);
-      record({ via: res.via, ok: !failed, bytes: res.bytes });
+      record({ via: res.via, source: res.source, ok: !failed, bytes: res.bytes });
       push(row.id, { text: `${res.via}${size}`, cls: failed ? 'warn' : 'ok',
                      inFlight: false, done: true, progress: 1 });
     } catch (e) {

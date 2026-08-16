@@ -543,7 +543,6 @@ await test('paths: youtube urls classify separately from soundcloud', async () =
 
 // ---------------------------------------------------------------- report
 
-console.log(results.join('\n'));
 await test('limiter: adaptive one backs off on refusal and recovers', async () => {
   const { createAdaptiveLimiter } = await import('../src/lib/limiter.js');
   const lim = createAdaptiveLimiter({ start: 4, min: 1, max: 4 });
@@ -586,5 +585,46 @@ await test('limiter: the penalty gate holds every worker, not just the one told'
   }
 });
 
+await test('stats: records and reads back through the host seam', async () => {
+  const { setHost } = await import('../src/lib/host.js');
+  const { record, readLog, summarize } = await import('../src/lib/stats.js');
+
+  // The offscreen document has no chrome.storage — this is the seam it uses
+  // instead, and going around it is what made every write vanish silently.
+  const store = new Map();
+  setHost({
+    getStored: async (k) => store.get(k),
+    setStored: async (k, v) => void store.set(k, v),
+  });
+
+  await record({ via: 'gate → aiff', source: 'gate', ok: true, bytes: 42e6 });
+  await record({ via: 'amazon → mp3', source: 'lucida', ok: true, bytes: 8e6 });
+  await record({ via: '', ok: false });
+
+  const log = await readLog();
+  assert.equal(log.length, 3, 'every finished track is written');
+
+  const s = summarize(log);
+  assert.equal(s.total, 2, 'only the ones that produced a file count as kept');
+  assert.equal(s.failed, 1);
+  assert.equal(s.bySource.gate, 1);
+  // Stated by the download, not read back out of the label — which is what
+  // broke when the label was reworded for the row.
+  assert.equal(s.bySource.lucida, 1);
+  assert.equal(s.mb, 50);
+  assert.equal(s.weeks.length, 12);
+  assert.equal(s.weeks.at(-1), 2, 'this week holds the two that worked');
+});
+
+// Reporting lives at the very bottom, and has to stay there.
+//
+// It used to sit above the last few tests, which pushed their results into an
+// array that had already been printed: they ran, they counted, and their lines
+// went nowhere. The totals said 37 while 34 appeared, and the one that was
+// failing was among the invisible ones. Anything added below this line is
+// silent, so nothing goes below it.
+console.log(results.join('\n'));
 console.log(`\n  ${passed} passed, ${failed} failed`);
-process.exit(failed ? 1 : 0);
+
+// exitCode rather than exit(), so queued writes still flush.
+process.exitCode = failed ? 1 : 0;

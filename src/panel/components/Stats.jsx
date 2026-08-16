@@ -24,13 +24,13 @@ const Figure = ({ value, label }) => (
 );
 
 /**
- * Renders nothing until there is something to say.
+ * The dig, once there is a dig to show.
  *
- * An empty chart on a fresh install is worse than the space it fills: it looks
- * like a feature that is broken rather than one that has not started. Nothing
- * was recorded before 0.18.0 either, so every install begins empty no matter how
- * long it has been in use — and the first track is enough to draw. Waiting for
- * three made a working feature look like a missing one for a week.
+ * With no history this rendered nothing at all, on the reasoning that an empty
+ * chart looks broken. It does — but a blank space looks like a feature that was
+ * never built, which is worse, and is exactly how it read while the recording
+ * was quietly failing. So it says what it is waiting for. One line, and it
+ * stops being a mystery.
  */
 export function Stats() {
   const [data, setData] = useState(null);
@@ -39,7 +39,14 @@ export function Stats() {
     readLog().then((log) => setData(log.length ? summarize(log, WEEKS) : null));
   }, []);
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <p className="mt-7 pt-5 border-t-[1.5px] border-ink
+                    font-mono text-[10px] tracking-[.14em] uppercase opacity-40">
+        Your first track starts the chart
+      </p>
+    );
+  }
 
   // Newest on the right, and the empty weeks kept. A gap where you did not dig
   // is part of the shape; dropping it would draw a busy month and a quiet one

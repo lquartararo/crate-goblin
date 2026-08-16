@@ -26,12 +26,12 @@ const KEY = 'stats';
 const CAP = 600;
 
 /**
- * Which route got the file, from the `via` line the download reports.
+ * Which route got the file, guessed from the `via` line.
  *
- * Those strings are written for a human reading one row — "aac_256k hls →
- * aiff", "lucida/tidal → flac · matched …" — so they are classified here, once,
- * rather than parsed later by something that wants a number. The first token is
- * the stable part; everything after it describes that particular track.
+ * A fallback only. The route is now stated outright by the download, because
+ * inferring it from the display string made that string load-bearing: renaming
+ * "lucida/amazon → mp3" to "amazon → mp3" for the sake of the row silently
+ * refiled every lucida download as a stream, and nothing failed to say so.
  */
 export function sourceOf(via = '') {
   const s = String(via);
@@ -50,11 +50,16 @@ export const SOURCES = ['original', 'gate', 'stream', 'lucida', 'yt-dlp'];
 let chain = Promise.resolve();
 
 /** Note one finished track. Never throws — a failed write must not fail a download. */
-export function record({ via, ok = true, bytes = 0 }) {
+export function record({ via, source, ok = true, bytes = 0 }) {
   chain = chain.then(async () => {
     try {
       const log = (await host.getStored(KEY)) ?? [];
-      log.push({ t: Date.now(), s: sourceOf(via), ok: ok ? 1 : 0, b: Math.round(bytes / 1e6) });
+      log.push({
+        t: Date.now(),
+        s: source && SOURCES.includes(source) ? source : sourceOf(via),
+        ok: ok ? 1 : 0,
+        b: Math.round(bytes / 1e6),
+      });
       await host.setStored(KEY, log.slice(-CAP));
     } catch {
       // Storage unavailable or full. The download already succeeded; this is

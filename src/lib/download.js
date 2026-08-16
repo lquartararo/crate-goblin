@@ -160,6 +160,9 @@ async function viaBridge(row, opts, onProgress) {
       via: `${sourceLabel(res.source)}→ ${res.name.split('.').pop()}`.replace(/\s+/g, ' ').trim(),
       bytes: res.bytes ?? 0,
       savedAs: res.name,
+      // Stated, so the stats never have to read the label back.
+      source: row.source === 'native' ? 'yt-dlp'
+        : /download/i.test(res.source ?? '') ? 'original' : 'stream',
     };
   } finally {
     chrome.runtime.onMessage.removeListener(relay);
@@ -296,7 +299,7 @@ async function grabViaGate(row, opts, onProgress) {
       const better = await viaBridge(row, opts, onProgress);
       return { ...better, note: `gate had only ${out.kbps}k` };
     }
-    return { via: `gate → ${out.ext}`, bytes: out.bytes, savedAs: out.savedAs };
+    return { via: `gate → ${out.ext}`, bytes: out.bytes, savedAs: out.savedAs, source: 'gate' };
   } catch (e) {
     // The gate worked and the conversion did not. Reported apart from a gate
     // that refused, because "the markup moved again" is expected and this is a
@@ -359,6 +362,7 @@ async function grabViaLucida(row, opts, onProgress) {
     via: `${service} → ${out.ext}${differs ? ` · matched "${matched}"` : ''}`,
     bytes: out.bytes,
     matchedFrom: service,
+    source: 'lucida',
   };
 }
 
