@@ -122,13 +122,20 @@ export function Guide({ service, running, error }) {
       )}
 
       {/* Downloads started elsewhere keep running. Hiding the working surface
-          must not hide the fact that work is in flight. */}
-      <p className="mt-5.5 pt-4 border-t-[1.5px] border-ink opacity-70
-                    font-mono text-[11px] leading-[1.5] tracking-[.1em] uppercase">
-        {error
-          ? 'Reload the page, or open a different crate'
-          : running ? `${running} still downloading` : ''}
-      </p>
+          must not hide the fact that work is in flight.
+
+          The rule comes with the message rather than standing on its own. This
+          rendered unconditionally, so the usual case — no error, nothing in
+          flight — was a horizontal rule with four pixels of padding and then
+          nothing, separating the content from the bottom of the panel. A
+          divider is a relationship between two things; with one thing it is
+          just a line. */}
+      {(error || running > 0) && (
+        <p className="mt-5.5 pt-4 border-t-[1.5px] border-ink opacity-70
+                      font-mono text-[11px] leading-[1.5] tracking-[.1em] uppercase">
+          {error ? 'Reload the page, or open a different crate' : `${running} still downloading`}
+        </p>
+      )}
     </section>
   );
 }
