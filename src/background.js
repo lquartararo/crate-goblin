@@ -273,25 +273,26 @@ chrome.downloads.onCreated.addListener(async (item) => {
   // have already cancelled the browser's copy. That degrades to the stream
   // fallback — a worse file, but never a missing one.
   //
-  // Only while it's still running. A small file from a fast CDN can finish
-  // between onCreated firing and this executing, and cancelling a finished
-  // download is an error ("Download must be in progress"), not a no-op. Worse,
-  // the bytes are already on disk, so refetching them would leave two copies of
-  // the track with Chrome uniquifying the second. Once it has landed, the
-  // browser's copy *is* the file — say so and let the caller report it.
-  if (item.state !== 'in_progress') {
-    gate.alreadyOnDisk = true;
-    return;
-  }
-
   if (/^https?:/i.test(item.url ?? '')) {
-    // Erase only once cancel has actually landed. Fired together they raced:
-    // erase removed the record while cancel was still resolving, and cancel
-    // then came back "Invalid downloadId".
-    chrome.downloads.cancel(item.id, () => {
-      void chrome.runtime.lastError;
-      chrome.downloads.erase({ id: item.id }, () => void chrome.runtime.lastError);
-    });
+    // Promises, not callbacks, and the outcome of the cancel is the answer.
+    //
+    // A small file from a fast CDN can finish between onCreated firing and this
+    // running — this handler awaits currentGate() first, which is enough time.
+    // Cancelling a finished download is an error, not a no-op, and the callback
+    // form reports it through runtime.lastError, which surfaces as an unchecked
+    // warning in the console however diligently it's read.
+    //
+    // Testing item.state first doesn't help: `item` is a snapshot taken when
+    // the event fired, so it still says in_progress long after the download has
+    // landed. The only trustworthy signal is what cancel itself does.
+    //
+    //   resolves  we stopped it in time — erase the record and refetch the URL
+    //   rejects   it already finished, so the bytes are on disk; refetching
+    //             would leave two copies with Chrome uniquifying the second
+    chrome.downloads.cancel(item.id).then(
+      () => chrome.downloads.erase({ id: item.id }).catch(() => {}),
+      () => { gate.alreadyOnDisk = true; },
+    );
   }
 });
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SoundCloud Crate",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Triage a SoundCloud playlist into free / gated / stream-only, grab what's grabbable, and batch the gates.",
   "permissions": [
     "downloads",
