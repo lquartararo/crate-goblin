@@ -51,6 +51,40 @@ export async function probeBridge() {
   return probed;
 }
 
+/**
+ * Convert a file the browser already put on disk, and tag it.
+ *
+ * Gates and lucida hand back a real file in whatever format the source had.
+ * One conversion implementation, and it is ffmpeg's — this used to be done in
+ * the extension with lamejs and a hand-written ID3 writer.
+ */
+export async function convertNative(job) {
+  return new Promise((resolve, reject) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative(HOST);
+    } catch (e) {
+      return reject(new Error(`the converter is not installed (${e?.message ?? e})`));
+    }
+    let done = false;
+    const finish = (fn, arg) => {
+      if (done) return;
+      done = true;
+      try { port.disconnect(); } catch { /* already gone */ }
+      fn(arg);
+    };
+    port.onMessage.addListener((msg) => {
+      if (msg?.type === 'done') finish(resolve, { path: msg.path, name: msg.name });
+      else if (msg?.type === 'error') finish(reject, new Error(msg.reason ?? 'conversion failed'));
+    });
+    port.onDisconnect.addListener(() => {
+      const err = chrome.runtime.lastError;
+      finish(reject, new Error(err?.message ?? 'the converter stopped unexpectedly'));
+    });
+    port.postMessage({ type: 'convert', ...job });
+  });
+}
+
 export function forgetBridge() {
   probed = null;
 }
@@ -61,7 +95,7 @@ export function forgetBridge() {
  * A long-lived port rather than a single message, because a download reports
  * progress and can outlast any request timeout.
  */
-export function downloadNative({ url, format, media, folder }, onProgress) {
+export function downloadNative({ url, format, media, folder, headers }, onProgress) {
   return new Promise((resolve, reject) => {
     let port;
     try {
@@ -89,6 +123,6 @@ export function downloadNative({ url, format, media, folder }, onProgress) {
       finish(reject, new Error(err?.message ?? 'the downloader stopped unexpectedly'));
     });
 
-    port.postMessage({ type: 'download', url, format, media, folder });
+    port.postMessage({ type: 'download', url, format, media, folder, headers });
   });
 }

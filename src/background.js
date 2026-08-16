@@ -6,7 +6,7 @@ import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
 import { classify, classifyYouTube } from './lib/paths.js';
 import { currentSession } from './lib/session.js';
-import { probeBridge, downloadNative } from './lib/native.js';
+import { probeBridge, downloadNative, convertNative } from './lib/native.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -655,6 +655,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // them that anything here can address: /resolve 404s, and /system-playlists
   // wants a urn the URL does not carry. The page already has the answer, so it
   // gets asked for it.
+  if (msg.type === 'native:convert') {
+    convertNative(msg.job).then(
+      (r) => sendResponse({ ok: true, ...r }),
+      (e) => sendResponse({ ok: false, reason: e?.message ?? String(e) }),
+    );
+    return true;
+  }
+
+  // Where a saved download actually landed. downloads.download() answers with an
+  // id the moment it starts, and the converter needs a finished file — so this
+  // waits for the item to complete rather than handing over a path to a
+  // half-written file.
+  if (msg.type === 'host:path') {
+    const settle = () => new Promise((resolve) => {
+      chrome.downloads.search({ id: msg.id }, ([item] = []) => {
+        if (!item) return resolve(null);
+        if (item.state === 'complete') return resolve(item.filename);
+        if (item.state === 'interrupted') return resolve(null);
+        setTimeout(() => settle().then(resolve), 250);
+      });
+    });
+    settle().then((path) => sendResponse(path ? { ok: true, path } : { ok: false }));
+    return true;
+  }
+
   if (msg.type === 'page:hydration') {
     (async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

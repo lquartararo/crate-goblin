@@ -85,6 +85,107 @@ def child_env():
 YTDLP_FORMATS = {"mp3": "mp3", "m4a": "m4a", "flac": "flac", "wav": "wav"}
 
 
+def unique(path):
+    """A path that does not exist yet. Re-downloading a track for a different
+    set is normal, and the older file may already be in a playlist."""
+    stem, ext = os.path.splitext(path)
+    n = 1
+    while os.path.exists(path):
+        path = f"{stem} ({n}){ext}"
+        n += 1
+    return path
+
+
+def out_dir_for(folder):
+    d = os.path.join(os.path.expanduser("~/Downloads"),
+                     *((safe_component(folder),) if folder else ()))
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def convert(msg):
+    """Re-container a file the browser already fetched, and tag it.
+
+    Gates hand back whatever the artist uploaded and lucida hands back whatever
+    the service had, so both arrive as a real file in a format nobody chose. The
+    extension used to convert these itself, which meant a second conversion
+    implementation living beside ffmpeg and losing to it — lamejs for mp3, a
+    hand-rolled WAV writer for aiff.
+    """
+    ffmpeg = which("ffmpeg")
+    if not ffmpeg:
+        return send({"type": "error", "reason": "ffmpeg is not installed. Re-run install-updater.sh"})
+
+    src = msg.get("path")
+    if not isinstance(src, str) or not os.path.isfile(src):
+        return send({"type": "error", "reason": "that file is not where the browser said it was"})
+
+    fmt = str(msg.get("format") or "mp3").lower()
+    dest = os.path.join(out_dir_for(msg.get("folder")),
+                        safe_component(msg.get("name") or os.path.basename(src)))
+    dest = unique(os.path.splitext(dest)[0] + "." + fmt)
+
+    cmd = [ffmpeg, "-y", "-i", src]
+
+    # Artwork travels as a url because the browser has one and the file may not.
+    art = None
+    tags = msg.get("tags") or {}
+    if msg.get("artwork"):
+        art = fetch_artwork(msg["artwork"])
+        if art:
+            cmd += ["-i", art, "-map", "0:a", "-map", "1:v", "-disposition:v", "attached_pic"]
+
+    if fmt == "mp3":
+        cmd += ["-codec:a", "libmp3lame", "-q:a", "0"]
+    elif fmt == "m4a":
+        cmd += ["-codec:a", "aac", "-b:a", "256k"]
+    elif fmt == "aiff":
+        # AIFF's own text chunks carry a name and little else, so ffmpeg's
+        # default drops the artist, the album and the year — measured, not
+        # assumed. ID3v2 in the container keeps them, which is the whole reason
+        # this project had a hand-written ID3 writer before ffmpeg was reachable.
+        # Rekordbox reads these; a library of correctly-named files with no
+        # artist tag is a library you cannot sort.
+        cmd += ["-write_id3v2", "1"]
+    # wav and flac take ffmpeg's default for the container.
+
+    for k, v in tags.items():
+        if v:
+            cmd += ["-metadata", f"{k}={v}"]
+
+    cmd.append(dest)
+    r = subprocess.run(cmd, capture_output=True, env=child_env())
+    if art:
+        try: os.unlink(art)
+        except OSError: pass
+
+    if r.returncode != 0:
+        log(r.stderr.decode("utf-8", "replace")[-2000:])
+        return send({"type": "error", "reason": "conversion failed", "log": LOG})
+
+    # The browser's copy has been replaced by the converted one.
+    try: os.unlink(src)
+    except OSError: pass
+
+    send({"type": "done", "path": dest, "name": os.path.basename(dest)})
+
+
+def fetch_artwork(url):
+    """Artwork to a temp file, or None. Never fatal — a tagged file with no
+    cover beats no file."""
+    if not str(url).startswith("https://"):
+        return None
+    try:
+        import urllib.request
+        fd, path = tempfile.mkstemp(suffix=".jpg")
+        with urllib.request.urlopen(url, timeout=20) as r, os.fdopen(fd, "wb") as f:
+            shutil.copyfileobj(r, f)
+        return path
+    except Exception as e:
+        log(f"artwork fetch failed: {e}")
+        return None
+
+
 def read_message():
     raw_length = sys.stdin.buffer.read(4)
     if len(raw_length) < 4:
@@ -204,6 +305,14 @@ def download(msg):
 
         cmd += js_runtime_args()
 
+        # SoundCloud hands a Go+ session better transcodings than an anonymous
+        # one, and yt-dlp has no session of its own. The extension is already
+        # inside that session, so it lends its header rather than yt-dlp being
+        # asked to read Chrome's cookie jar — which on macOS means a keychain
+        # prompt, which is not something to put in front of these users.
+        for k, v in (msg.get("headers") or {}).items():
+            cmd += ["--add-header", f"{k}:{v}"]
+
         cmd.append(url)
 
         try:
@@ -277,6 +386,8 @@ def main():
                 send(probe())
             elif kind == "download":
                 download(msg)
+            elif kind == "convert":
+                convert(msg)
             else:
                 send({"type": "error", "reason": f"unknown request: {kind}"})
         except Exception as e:
