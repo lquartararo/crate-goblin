@@ -30,26 +30,25 @@ const SITES = [
     note: 'Any video or playlist' },
 ];
 
-const Code = ({ children }) => (
-  <code className="font-mono bg-wash px-1.5 py-px tracking-[.06em]">{children}</code>
-);
-
-// What counts on each site. These are the paths paths.js actually accepts, so
-// the list is a description of the routing rather than a promise beside it.
+// What counts on each site, named the way the site names them. These used to
+// carry the URL patterns they map to, which described the routing accurately
+// and told the person reading it nothing: someone who has never looked at an
+// address bar on purpose does not recognise a page by its path.
 const WORKS_ON = {
   soundcloud: [
-    <>A playlist — <Code>/sets/…</Code></>,
+    'A playlist',
     'An album',
     'An artist profile, or its tracks tab',
     'A single track',
   ],
+  // A video opened from a mix takes just that video, not the two hundred
+  // behind it. That used to be spelled out here and it does not need to be:
+  // it is what anyone would assume, so the note only reassured someone who had
+  // already thought to worry about it, and gave everyone else something new to
+  // wonder about.
   youtube: [
     'Any video',
-    <>A playlist — <Code>/playlist?list=…</Code></>,
-    // Worth stating outright: a video opened from a mix carries `list=` and
-    // looks like a playlist, and this deliberately takes the one video rather
-    // than the two hundred behind it.
-    'A video playing inside a mix counts as that one video',
+    'A playlist',
   ],
 };
 
