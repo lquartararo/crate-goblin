@@ -344,6 +344,21 @@ async function grabStream(row, track, { container = 'aiff', tags = true, folder 
     }
   }
 
+  // Asked for MP3 but handed AAC, which is what happens on a premium stream:
+  // decode it and encode properly rather than falling through to the remux
+  // below, which would write an .m4a for someone who asked for .mp3.
+  if (container === 'mp3') {
+    onProgress?.({ phase: 'decoding' });
+    try {
+      const mp3 = await toMp3(blob);
+      const out = meta ? await applyTags(mp3, 'mp3', meta, artwork) : mp3;
+      await save(out, filename(row, 'mp3', folder));
+      return { via: `${t.preset} hls → mp3`, bytes: out.size };
+    } catch (e) {
+      onProgress?.({ phase: 'fallback', reason: `mp3 encode failed: ${e.message}` });
+    }
+  }
+
   if (container === 'fragmented') {
     // No tagging here: atoms are written while moov is rebuilt, and this path
     // exists precisely to skip that rebuild.

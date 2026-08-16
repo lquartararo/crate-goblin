@@ -105,11 +105,22 @@ export function rankTranscodings(track, { preferAac = true, authenticated = fals
 
   const order = authenticated ? AUTHED_RANK : ANON_RANK;
 
+  // SoundCloud marks the premium stream on the transcoding itself, with
+  // `quality: 'hq'`. That is 256k AAC, against 128k for the MP3 everyone else
+  // gets, and it is per-track rather than something to infer from the session.
+  // Nothing here read it before, so a Go+ account was being served the same
+  // stream as a logged-out one.
+  const isHq = (t) => t.quality === 'hq';
+
   const score = (t) => {
     const i = order.indexOf(t.preset);
     const rank = i === -1 ? order.length : i;
-    // Opting out of AAC means "give me the single-fetch progressive MP3 and
-    // skip the segment assembly + remux entirely".
+    // Premium beats everything, whatever was asked for. Two lossy generations
+    // from 256k AAC still beats one from a 128k MP3 on a club system, where
+    // 128k artefacts on hats and cymbals are exactly what you hear.
+    if (isHq(t)) return -100;
+    // Otherwise, opting out of AAC means "give me the single-fetch progressive
+    // MP3 and skip the segment assembly and remux entirely".
     return preferAac ? rank : t.format.protocol === 'progressive' ? -10 : rank;
   };
 

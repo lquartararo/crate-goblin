@@ -40,20 +40,3 @@ export function useSettings() {
 
   return { settings, set, opts, loaded };
 }
-
-const EMAIL_KEY = 'gateEmail';
-
-export function useGateEmail() {
-  const [email, setEmail] = useState('');
-
-  useEffect(() => {
-    chrome.storage.local.get(EMAIL_KEY).then(({ [EMAIL_KEY]: v }) => setEmail(v ?? ''));
-  }, []);
-
-  const save = useCallback((value) => {
-    setEmail(value);
-    chrome.storage.local.set({ [EMAIL_KEY]: value.trim() });
-  }, []);
-
-  return [email, save];
-}

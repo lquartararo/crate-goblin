@@ -7,7 +7,9 @@
 //                   page load, no social steps rendered at all
 //   PumpYourSound   <button type="submit">Download</button>, behind a Cookiebot
 //                   overlay that intercepts clicks until dismissed
-//   ToneDen         no download control — an email capture form instead
+//   ToneDen         no download control, only an email capture form. Not
+//                   automated: handing out an address to reach a stream we can
+//                   already fetch is a bad trade, so these fall back instead
 //   TheArtistUnion  404. Gate links rot; that has to fail fast, not hang
 //
 // None of them gated behind clickable follow/like/repost controls, so the old
@@ -88,19 +90,6 @@ function findDownload() {
   return null;
 }
 
-/** An email-capture gate: an email field with something to submit it. */
-function findEmailGate() {
-  const input = [...document.querySelectorAll('input[type="email"], input[name*="mail" i]')]
-    .find(usable);
-  if (!input) return null;
-
-  const form = input.closest('form');
-  const submit = (form ?? document).querySelector(
-    'button[type="submit"], input[type="submit"], [class*="submit" i], a[class*="subscribe" i]',
-  );
-  return { input, submit: usable(submit) ? submit : null, form };
-}
-
 function findFileLink() {
   for (const a of document.querySelectorAll('a[href]')) {
     if (AUDIO_EXT.test(a.getAttribute('href') || '')) return new URL(a.href, location.href).href;
@@ -147,13 +136,12 @@ const dismissConsent = () => {
 
 // ------------------------------------------------------------------ attempt
 
-async function attempt(email) {
+async function attempt() {
   const did = [];
 
   if (dismissConsent()) { did.push('declined consent'); await sleep(SETTLE_MS); }
 
   const deadline = Date.now() + TIMEOUT_MS;
-  let submittedEmail = false;
   let emptyPasses = 0;
 
   while (Date.now() < deadline) {
@@ -173,43 +161,17 @@ async function attempt(email) {
       continue;
     }
 
-    const gate = findEmailGate();
-    if (gate && !submittedEmail) {
-      if (!email) {
-        return { ok: false, reason: 'needs an email address — set one in the panel', did };
-      }
-      gate.input.focus();
-      gate.input.value = email;
-      // Frameworks track value through events, not the property. Without these
-      // the field looks filled but submits empty.
-      gate.input.dispatchEvent(new Event('input', { bubbles: true }));
-      gate.input.dispatchEvent(new Event('change', { bubbles: true }));
-
-      submittedEmail = true;
-      did.push('submitted email');
-      if (gate.submit) press(gate.submit);
-      else gate.form?.requestSubmit?.();
-      await sleep(SETTLE_MS * 2);
-      continue;
+    // Nothing to click. It may just not have rendered yet, so only give up once
+    // the page has stayed empty across several passes.
+    //
+    // An email-capture gate lands here too, and that is deliberate. Automating
+    // those meant handing out an address to reach audio the stream fallback
+    // already gets, and the ones that do work are double opt-in anyway: the
+    // file arrives by a link in an inbox nothing here can read. Falling back
+    // costs a little quality and no personal data.
+    if (++emptyPasses >= EMPTY_PASSES_BEFORE_GIVING_UP) {
+      return { ok: false, reason: 'no download control found on this gate', did };
     }
-
-    if (gate && submittedEmail) {
-      // Double opt-in: the file arrives by email, which we can't read. Say so
-      // plainly rather than burning the remaining timeout on nothing.
-      return { ok: false, reason: 'email submitted — confirmation link is in your inbox', did };
-    }
-
-    if (!download && !gate) {
-      // Nothing yet — but it may simply not have rendered. Only give up once
-      // the page has stayed empty across several passes.
-      if (++emptyPasses >= EMPTY_PASSES_BEFORE_GIVING_UP) {
-        return { ok: false, reason: 'no download control found on this gate', did };
-      }
-      await sleep(SETTLE_MS);
-      continue;
-    }
-
-    emptyPasses = 0; // something is on the page; stop counting toward the bail
     await sleep(SETTLE_MS);
   }
 
@@ -223,6 +185,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'gate:ping') { sendResponse({ ok: true }); return false; }
 
   if (msg?.type !== 'gate:unlock') return false;
-  attempt(msg.email).then(sendResponse, (e) => sendResponse({ ok: false, reason: e.message }));
+  attempt().then(sendResponse, (e) => sendResponse({ ok: false, reason: e.message }));
   return true; // async
 });

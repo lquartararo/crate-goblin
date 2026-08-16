@@ -12,16 +12,16 @@ import { Haul } from './components/Haul.jsx';
 import { maskStyle, LEVELS } from './ditherMask.js';
 import { useCrate } from './state/useCrate.js';
 import { useJobs, loadDrmBlocked } from './state/useJobs.js';
-import { useSettings, useGateEmail } from './state/useSettings.js';
+import { useSettings } from './state/useSettings.js';
 import { cn } from './ui/cn.js';
 import { icon } from './icons.js';
 import { decrypt } from './reveal.js';
 import { useSmoothScroll } from './useSmoothScroll.js';
 
 const FORMAT_HINT = {
-  aiff: 'Decoded PCM. Safest on club CDJs, ~10× the size.',
-  m4a: 'The same audio, kept as AAC. A tenth the size.',
-  mp3: "SoundCloud's own 128k encode. Lowest quality, widest reach.",
+  aiff: 'Highest quality.',
+  m4a: 'AIFF quality for a tenth of the size.',
+  mp3: 'Highest compatibility.',
 };
 
 const Glyph = ({ name, size = 16 }) => (
@@ -123,7 +123,6 @@ export function Panel() {
   const { state, crate, error } = useCrate();
   const { jobs, active, pending, fraction, run, setStatus, haul, clearHaul } = useJobs();
   const { settings, set, opts } = useSettings();
-  const [email, setEmail] = useGateEmail();
 
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -307,19 +306,6 @@ export function Panel() {
               </span>
             </Field>
 
-            <Field label="Email for gates (optional)">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you+crate@gmail.com"
-                className="min-w-[215px] px-3 py-[10px] rounded-[3px] border-[1.5px] border-ink
-                           bg-paper text-ink font-sans text-[13px] leading-none normal-case
-                           tracking-normal transition-colors duration-150 hover:border-accent
-                           placeholder:opacity-50
-                           focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-1"
-              />
-            </Field>
 
             <div className="flex gap-2.5 ml-auto">
               <Button size="sm" variant="primary" onClick={onDownload}

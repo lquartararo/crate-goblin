@@ -396,15 +396,14 @@ async function attemptGate(url, suggestedName) {
 
     await ensureInjected(tab.id);
 
-    const { gateEmail } = await chrome.storage.local.get('gateEmail');
-    let res = await chrome.tabs.sendMessage(tab.id, { type: 'gate:unlock', email: gateEmail });
+    let res = await chrome.tabs.sendMessage(tab.id, { type: 'gate:unlock' });
 
     // One retry against the settled document. If a late redirect swapped the
     // page out from under the first attempt, the script we talked to belonged
     // to a document that no longer exists — re-injecting gets us the real one.
     if (!res?.ok && /no download control/.test(res?.reason ?? '')) {
       await ensureInjected(tab.id, { force: true });
-      res = await chrome.tabs.sendMessage(tab.id, { type: 'gate:unlock', email: gateEmail });
+      res = await chrome.tabs.sendMessage(tab.id, { type: 'gate:unlock' });
     }
     if (res?.ok) return res;
 
