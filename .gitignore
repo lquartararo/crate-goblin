@@ -2,3 +2,6 @@ node_modules
 .DS_Store
 .updater/
 .impeccable/
+README.md
+PRODUCT.md
+DESIGN.md
