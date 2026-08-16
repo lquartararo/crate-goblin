@@ -30,6 +30,44 @@ const MAX_SECONDS = 60 * 25;
 // check available against a title that merely looks right.
 const DURATION_TOLERANCE = 25;
 
+// InnerTube clients, tried in order until one returns formats that actually
+// carry a URL.
+//
+// The WEB client increasingly answers with the format list and no URLs at all —
+// no `url`, no `signatureCipher` — which is what "No valid URL to decipher"
+// means. That is YouTube's proof-of-origin gate, and it is a property of the
+// client identity rather than of the request, so no amount of fixing headers or
+// origins reaches it. The embedded and mobile clients are not held to it.
+//
+// A list rather than one pick, because which of them YouTube is currently
+// squeezing changes, and walking them costs one extra call on a miss.
+const CLIENTS = ['IOS', 'TV_EMBEDDED', 'WEB_EMBEDDED', 'MWEB', 'ANDROID', 'WEB'];
+
+const hasPlayableFormats = (info) =>
+  [...(info?.streaming_data?.adaptive_formats ?? []),
+   ...(info?.streaming_data?.formats ?? [])]
+    .some((f) => f?.url || f?.signature_cipher || f?.cipher);
+
+/**
+ * Player info from whichever client will actually hand over URLs.
+ *
+ * Returns the client that worked alongside the info, so a failure downstream
+ * can say which one produced it.
+ */
+async function playableInfo(yt, id) {
+  const tried = [];
+  for (const client of CLIENTS) {
+    try {
+      const info = await yt.getBasicInfo(id, client);
+      if (hasPlayableFormats(info)) return { info, client };
+      tried.push(`${client}: no urls`);
+    } catch (e) {
+      tried.push(`${client}: ${e?.message ?? 'failed'}`);
+    }
+  }
+  throw new Error(`no client returned playable formats (${tried.join('; ')})`);
+}
+
 let client = null;
 
 /**
@@ -114,6 +152,15 @@ async function pageFetch(input, init) {
  * decipher() becomes fetch("undefined"), a relative URL, and a network error
  * that names nothing.
  */
+/** decipher(), with its own failure named rather than left uncaught. */
+function mediaUrl(format, player) {
+  try {
+    return format.decipher(player);
+  } catch (e) {
+    throw new Error(`could not decipher the media URL (${e?.message ?? e})`);
+  }
+}
+
 async function fetchMedia(url, signal) {
   if (typeof url !== 'string' || !/^https?:/i.test(url)) {
     throw new Error(`decipher produced no usable URL (${JSON.stringify(url)?.slice(0, 60)})`);
@@ -249,11 +296,11 @@ export async function fetchFromYouTube(query, { durationMs, onProgress, signal }
   if (!picked) throw new Error('no YouTube match of the right length');
 
   onProgress?.({ stage: 'resolving' });
-  const info = await yt.getBasicInfo(picked.id);
+  const { info } = await playableInfo(yt, picked.id);
 
   const { format } = pickFormat(info, 'audio');
   return {
-    blob: await fetchMedia(format.decipher(yt.session.player), signal),
+    blob: await fetchMedia(mediaUrl(format, yt.session.player), signal),
     title: info?.basic_info?.title ?? picked.title?.text ?? query,
     videoId: picked.id,
   };
@@ -363,10 +410,10 @@ export async function fetchRowMedia(row, { want = 'audio', onProgress, signal } 
   const id = String(row.id).replace(/^yt:/, '');
 
   onProgress?.({ stage: 'resolving' });
-  const info = await yt.getBasicInfo(id);
+  const { info } = await playableInfo(yt, id);
   const { format, kind } = pickFormat(info, want);
 
-  const blob = await fetchMedia(format.decipher(yt.session.player), signal);
+  const blob = await fetchMedia(mediaUrl(format, yt.session.player), signal);
 
   // The container, from what YouTube said it is rather than from the codec.
   const mime = String(format.mime_type ?? '');
