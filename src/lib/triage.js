@@ -1,4 +1,5 @@
 import { drmOnly } from './hls.js';
+import { splitArtistTitle } from './naming.js';
 
 // Sorting a playlist into the three buckets.
 //
@@ -112,12 +113,24 @@ export function summarize(track, context = {}) {
   const t = classify(track);
   const declared = track.publisher_metadata?.artist;
 
+  // Declared artist beats the account name: promo and label channels post
+  // other people's music, so the uploader is not reliably the artist.
+  const credited = declared || track.user?.username || 'Unknown';
+  // Then tidy the pair. See naming.js — it only acts on what it can corroborate
+  // and leaves anything ambiguous exactly as SoundCloud gave it.
+  const named = splitArtistTitle({
+    title: track.title,
+    artist: credited,
+    artistDeclared: Boolean(declared),
+  });
+
   return {
     id: track.id,
-    title: track.title,
-    // Declared artist beats the account name: promo and label channels post
-    // other people's music, so the uploader is not reliably the artist.
-    artist: declared || track.user?.username || 'Unknown',
+    title: named.title,
+    // What SoundCloud actually called it, kept so the change is auditable and
+    // so a bad split can be diagnosed without re-fetching the track.
+    rawTitle: track.title,
+    artist: named.artist,
     artistDeclared: Boolean(declared),
     isrc: track.publisher_metadata?.isrc ?? null, // best key for dedupe vs your library
     genre: track.genre ?? null,

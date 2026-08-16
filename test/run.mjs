@@ -659,6 +659,84 @@ await test('update: refuses to reload into a half-built manifest', async () => {
   assert.equal(looksLoadable(null), false);
 });
 
+// --------------------------------------------------------------- naming
+
+await test('naming: strips promo brackets, keeps everything else', async () => {
+  const { cleanTitle } = await import('../src/lib/naming.js');
+
+  assert.equal(cleanTitle('Libak Budots (FREE DOWNLOAD)'), 'Libak Budots');
+  assert.equal(cleanTitle('Libak Budots [Free DL]'), 'Libak Budots');
+  assert.equal(cleanTitle('Vidrado **FREE DOWNLOAD**'), 'Vidrado **FREE DOWNLOAD**',
+    'no brackets, no pipe: left alone rather than guessed at');
+  assert.equal(cleanTitle('Papap Dol (buy = free download)'), 'Papap Dol');
+  assert.equal(cleanTitle('Papap Dol | free download'), 'Papap Dol');
+
+  // Load-bearing parentheses. Every one of these changes which record it is.
+  const keep = [
+    'Make It Bun Dem (Pablito Mix, City Lights & HSTN Cumbiaton Remix)',
+    'Arizona B (Radio Edit)',
+    'Vidrado (Extended Mix)',
+    'Libak (VIP)',
+    'Isaw (feat. DJ Love (Sherwin Tuna))',
+    'Ice Cream Yummy (Original Mix)',
+    'Papap Dol (Premiere)',
+  ];
+  for (const t of keep) assert.equal(cleanTitle(t), t, `must keep: ${t}`);
+
+  // Words that merely contain the promo words.
+  assert.equal(cleanTitle('Free'), 'Free');
+  assert.equal(cleanTitle('Freefall (Original Mix)'), 'Freefall (Original Mix)');
+  assert.equal(cleanTitle('Download (Club Edit)'), 'Download (Club Edit)');
+
+  // A title that is nothing but promo keeps it: empty is worse than silly.
+  assert.equal(cleanTitle('(FREE DOWNLOAD)'), '(FREE DOWNLOAD)');
+  assert.equal(cleanTitle(''), '');
+  assert.equal(cleanTitle(null), '');
+});
+
+await test('naming: splits artist from title only when corroborated', async () => {
+  const { splitArtistTitle } = await import('../src/lib/naming.js');
+
+  // Duplicated prefix: unambiguous, so it goes.
+  assert.deepEqual(
+    splitArtistTitle({ title: 'Pablito Mix - Vidrado', artist: 'Pablito Mix', artistDeclared: true }),
+    { artist: 'Pablito Mix', title: 'Vidrado', split: 'prefix' });
+
+  // Declared artist that isn't a prefix: BOTH left alone. On a remix the
+  // declared artist is the remixer and the title credits the original, which is
+  // already right — rewriting it would lose the original credit.
+  assert.deepEqual(
+    splitArtistTitle({
+      title: 'Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix Remix)',
+      artist: 'Pablito Mix', artistDeclared: true }),
+    { artist: 'Pablito Mix',
+      title: 'Skrillex & Damian Marley - Make It Bun Dem (Pablito Mix Remix)', split: null });
+
+  // Nothing declared: read the credit out of the title.
+  assert.deepEqual(
+    splitArtistTitle({ title: 'DJ KRZ - Libak Budots', artist: 'Some Promo Channel', artistDeclared: false }),
+    { artist: 'DJ KRZ', title: 'Libak Budots', split: 'title' });
+
+  // Refusals. Each of these would lose or scramble something.
+  const refuse = [
+    ['Foo (Live - 2019) - Bar', 'bracket left of the dash'],
+    ['A Very Long Sequence Of Words That Is Clearly Not An Artist Name - X', 'too many words'],
+    ['01 - Some Track', 'tracklist number'],
+    ['NoDashHereAtAll', 'nothing to split'],
+  ];
+  for (const [title, why] of refuse) {
+    const r = splitArtistTitle({ title, artist: 'Channel', artistDeclared: false });
+    assert.equal(r.split, null, `must refuse (${why}): ${title}`);
+    assert.equal(r.title, title, `and must keep the title intact: ${title}`);
+  }
+
+  // Hyphenated names must not be mistaken for a separator: the split needs
+  // spaces around the dash.
+  const h = splitArtistTitle({ title: 'Jean-Michel Jarre', artist: '', artistDeclared: false });
+  assert.equal(h.split, null);
+  assert.equal(h.title, 'Jean-Michel Jarre');
+});
+
 // ---------------------------------------------------------------- report
 
 console.log(results.join('\n'));
