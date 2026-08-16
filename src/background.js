@@ -5,6 +5,7 @@
 import { loadTracks } from './lib/api.js';
 import { scheduleUpdateChecks } from './lib/update.js';
 import { classify, classifyYouTube } from './lib/paths.js';
+import { currentSession } from './lib/session.js';
 
 const PANEL = 'src/panel/panel.html';
 
@@ -697,10 +698,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // The panel asks so it can say which tier the quality is coming from.
+  //
+  // Statically imported, deliberately. A dynamic import() here made Vite emit
+  // its module-preload helper, which injects a <link> and therefore touches
+  // `document` — and a service worker has no DOM, so the whole handler died
+  // with "document is not defined" before it reached any of this.
   if (msg.type === 'session:get') {
-    import('./lib/session.js')
-      .then((m) => m.currentSession())
-      .then(sendResponse, () => sendResponse({ signedIn: false, goPlus: false, plan: null }));
+    currentSession().then(
+      sendResponse,
+      () => sendResponse({ signedIn: false, goPlus: false, plan: null }),
+    );
     return true;
   }
 

@@ -45,14 +45,32 @@ let client = null;
  * to nothing.
  */
 async function pageFetch(input, init) {
-  const url = typeof input === 'string' ? input : input.url;
-  const opts = init ?? (input instanceof Request
-    ? {
-        method: input.method,
-        headers: Object.fromEntries(input.headers.entries()),
-        body: input.method === 'GET' || input.method === 'HEAD' ? undefined : await input.text(),
-      }
-    : {});
+  // Three shapes arrive here: a string, a URL, and a Request. Reading `.url`
+  // off a URL gives undefined, which chrome.scripting rejects outright as an
+  // unserializable argument rather than passing along as null.
+  const url = typeof input === 'string' ? input
+    : input instanceof URL ? input.href
+    : String(input?.url ?? input);
+
+  const src = init ?? (input instanceof Request ? input : null);
+  const method = src?.method ?? 'GET';
+
+  // Built by hand rather than passed through. executeScript arguments cross a
+  // structured clone, and a Headers object, an AbortSignal or a stream body all
+  // fail it — quietly taking the whole call down with them.
+  const opts = {
+    method,
+    headers: src?.headers
+      ? (src.headers instanceof Headers
+          ? Object.fromEntries(src.headers.entries())
+          : { ...src.headers })
+      : undefined,
+    body: method === 'GET' || method === 'HEAD'
+      ? undefined
+      : (input instanceof Request && !init ? await input.clone().text()
+         : typeof src?.body === 'string' ? src.body
+         : undefined),
+  };
 
   const res = await chrome.runtime.sendMessage({ type: 'youtube:fetch', url, init: opts });
   if (!res?.ok) throw new Error(res?.reason ?? 'youtube request failed');
