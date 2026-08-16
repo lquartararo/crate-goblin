@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BUCKET } from '../lib/triage.js';
 import { Button } from './ui/button.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select.jsx';
@@ -121,13 +121,18 @@ export function Panel() {
   }, []);
 
   const { state, crate, error } = useCrate();
-  const { jobs, active, pending, fraction, run, setStatus, haul, clearHaul } = useJobs();
+  const { jobs, active, pending, fraction, run, haul, clearHaul } = useJobs();
   const { settings, set, opts } = useSettings();
 
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
 
   const [drmBlocked, setDrmBlocked] = useState(() => new Set());
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: 'session:get' }).then(setSession).catch(() => {});
+  }, []);
 
   useEffect(() => {
     loadDrmBlocked().then(setDrmBlocked);
@@ -244,6 +249,15 @@ export function Panel() {
                 {pending} in queue{active ? ` · ${active} running` : ''}
               </span>
             )}
+            {/* Why the quality is what it is. "128k because you're signed out"
+                and "128k because that's all there was" look identical in a
+                downloads folder, and only one of them is worth acting on. */}
+            {session && !session.goPlus && (
+              <span className="opacity-55">
+                {session.signedIn ? 'standard quality' : 'signed out · 128k'}
+              </span>
+            )}
+            {session?.goPlus && <span className="opacity-70">Go+ · 256k</span>}
           </div>
           <CrateTitle tight={tight} title={
             state === 'loading' ? '' : idle

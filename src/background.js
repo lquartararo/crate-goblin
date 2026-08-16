@@ -590,6 +590,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // The panel asks so it can say which tier the quality is coming from.
+  if (msg.type === 'session:get') {
+    import('./lib/session.js')
+      .then((m) => m.currentSession())
+      .then(sendResponse, () => sendResponse({ signedIn: false, goPlus: false, plan: null }));
+    return true;
+  }
+
   if (msg.type === 'host:oauth') {
     chrome.cookies
       .get({ url: 'https://soundcloud.com', name: 'oauth_token' })

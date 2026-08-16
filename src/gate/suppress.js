@@ -22,7 +22,7 @@
     location: { href: '', replace() {}, assign() {} },
   });
 
-  window.open = function (url, ...rest) {
+  window.open = function (url, ..._rest) {
     attempts++;
     window.dispatchEvent(new CustomEvent('crate:popup-blocked', { detail: { url: String(url ?? '') } }));
     return stub();

@@ -4,7 +4,7 @@
 // URL.createObjectURL, and streaming a 40-segment track through one is a
 // fight you don't need to have.
 
-import { resolveTranscoding, originalDownloadUrl, getOAuthToken } from './api.js';
+import { resolveTranscoding, originalDownloadUrl } from './api.js';
 import { fetchHlsAudio, rankTranscodings, drmOnly } from './hls.js';
 import { remuxToStandardMp4 } from './remux.js';
 import { toM4a } from './aac.js';
@@ -13,6 +13,7 @@ import { toMp3 } from './mp3.js';
 import { applyTags, fetchArtwork, metaFromRow, mergeWithExisting } from './tag.js';
 import { BUCKET, isAutomatable } from './triage.js';
 import { host } from './host.js';
+import { currentSession } from './session.js';
 import { fetchTrack } from './lucida.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
@@ -49,9 +50,6 @@ function filename(row, ext, folder) {
 const save = (blob, name) => host.save(blob, name);
 
 const AUDIO_EXT = /\.(wav|aiff?|flac|mp3|m4a|ogg)(?:$|[?#])/i;
-
-const extFromUrl = (url, fallback) =>
-  url.match(AUDIO_EXT)?.[1]?.toLowerCase() ?? fallback;
 
 const FROM_MIME = {
   'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav',
@@ -280,7 +278,11 @@ async function grabStream(row, track, { container = 'aiff', tags = true, folder 
   // One artwork fetch per track, shared by whichever container path wins.
   const artwork = tags ? await fetchArtwork(row.artwork) : null;
 
-  const authenticated = Boolean(await getOAuthToken());
+  // A token means signed in, which is not the same as entitled. Go+ changes
+  // which transcodings SoundCloud offers at all, so the ranking follows the
+  // plan rather than the cookie.
+  const { signedIn, goPlus } = await currentSession();
+  const authenticated = goPlus || signedIn;
   // Asking for mp3 means taking the progressive stream rather than the AAC.
   const candidates = rankTranscodings(track, { preferAac: container !== 'mp3', authenticated });
   if (!candidates.length) {
