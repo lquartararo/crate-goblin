@@ -244,10 +244,16 @@ So it updates itself out of a git checkout instead:
 
 - `tools/install-updater.sh` installs a launchd agent that runs
   `git pull --ff-only` every 30 minutes.
-- `src/lib/update.js` polls the repo's `dist/manifest.json` every 3 hours and
-  calls `chrome.runtime.reload()` when the version there is newer than the one
-  running. Reloading an unpacked extension re-reads from disk, so the pull is
-  what delivers the update and the reload is only what makes it take effect.
+- `src/lib/update.js` compares two things every 3 hours and calls
+  `chrome.runtime.reload()` when they disagree:
+  `chrome.runtime.getManifest()` (what Chrome loaded, fixed until a reload)
+  against `fetch(getURL('manifest.json'))` (the bytes on disk, which the pull
+  rewrites). Reloading an unpacked extension re-reads from disk, so the pull
+  delivers the update and the reload only makes it take effect.
+
+  Deliberately no network. Reading the manifest from `raw.githubusercontent`
+  would only work on a public repo, and authenticating it would mean shipping a
+  token that every friend gets a copy of.
 
 The two schedules don't need to agree. If the pull hasn't landed, the versions
 still match and nothing happens; the next check picks it up.

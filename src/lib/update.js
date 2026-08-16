@@ -14,12 +14,23 @@
 // The ordering doesn't need coordinating. If the pull hasn't landed yet the
 // versions still match, nothing happens, and the next check picks it up.
 
-// Where to look. Points at the built output, because that's what gets loaded —
-// the source manifest and the built one carry the same version, but reading the
-// one that ships means a half-committed build can't advertise itself as ready.
-const REPO = 'lquartararo/soundcloud-crate';
-const BRANCH = 'main';
-const REMOTE_MANIFEST = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/dist/manifest.json`;
+// Read off disk, not off the network.
+//
+// The obvious version of this fetched the manifest from raw.githubusercontent —
+// which works only for a public repo. This one is private, so that request 404s
+// forever and the check silently never fires. Authenticating it would mean
+// shipping a token in source that every friend gets a copy of.
+//
+// So it asks the filesystem instead. For an unpacked extension these two read
+// different things:
+//
+//   chrome.runtime.getManifest()  what Chrome loaded, fixed until a reload
+//   fetch(getURL('manifest.json'))  the bytes on disk, which the pull rewrites
+//
+// When they disagree, the pull has landed and a reload will pick it up. No
+// network, no credentials, and it works the same whether the repo is public,
+// private, or not on GitHub at all.
+const DISK_MANIFEST = 'manifest.json';
 
 const ALARM = 'crate:update-check';
 // Three hours. This is a DJ tool used in bursts, not a service — checking more
@@ -82,28 +93,25 @@ export function looksLoadable(manifest) {
 }
 
 async function check() {
-  let remote;
+  let onDisk;
   try {
-    // no-store: a cached manifest would keep reporting the old version for as
-    // long as the CDN felt like it, which for a three-hour poll means missing
-    // updates entirely rather than merely late.
-    const res = await fetch(REMOTE_MANIFEST, { cache: 'no-store' });
+    // no-store so this reads the file rather than whatever Chrome cached when
+    // the extension loaded — which would be the version already running, and
+    // would never differ.
+    const res = await fetch(chrome.runtime.getURL(DISK_MANIFEST), { cache: 'no-store' });
     if (!res.ok) return;
-    remote = await res.json();
+    onDisk = await res.json();
   } catch {
-    // Offline, rate-limited, repo moved. All the same here: try again later.
+    // Mid-pull, or the checkout moved. Try again on the next tick.
     return;
   }
 
-  if (!looksLoadable(remote)) return;
+  if (!looksLoadable(onDisk)) return;
 
   const running = chrome.runtime.getManifest().version;
-  if (compareVersions(remote.version, running) !== 1) return;
+  if (compareVersions(onDisk.version, running) !== 1) return;
 
-  // Only reloads if the pull has already put the new files on disk. If it
-  // hasn't, this reloads into the same version, the check runs again, and
-  // eventually the two line up — so the two schedules never need to agree.
-  console.log(`[crate] updating ${running} → ${remote.version}`);
+  console.log(`[crate] updating ${running} → ${onDisk.version}`);
   chrome.runtime.reload();
 }
 

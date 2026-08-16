@@ -30,8 +30,7 @@
     "https://*.pumpyoursound.com/*",
     "https://*.droploud.com/*",
     "https://*.gaterush.me/*",
-    "https://*.lucida.to/*",
-    "https://raw.githubusercontent.com/*"
+    "https://*.lucida.to/*"
   ],
   "background": {
     "service_worker": "src/background.js",
