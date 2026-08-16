@@ -74,7 +74,9 @@ export async function convertNative(job) {
       fn(arg);
     };
     port.onMessage.addListener((msg) => {
-      if (msg?.type === 'done') finish(resolve, { path: msg.path, name: msg.name });
+      if (msg?.type === 'done') finish(resolve, { path: msg.path, name: msg.name, bytes: msg.bytes });
+      // Not an error: the file was fine, just worse than what is on offer.
+      else if (msg?.type === 'worse') finish(resolve, { worse: true, kbps: msg.kbps });
       else if (msg?.type === 'error') finish(reject, new Error(msg.reason ?? 'conversion failed'));
     });
     port.onDisconnect.addListener(() => {

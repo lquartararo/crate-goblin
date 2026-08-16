@@ -158,13 +158,33 @@ async function quickDownload(btn, url) {
 const YT_BAR = ['#top-level-buttons-computed',
                 'ytd-playlist-header-renderer #top-level-buttons-computed'];
 
+/**
+ * The first match that is actually on screen.
+ *
+ * YouTube renders three elements with id="top-level-buttons-computed" on a
+ * watch page and only one of them has a size — the other two belong to menu
+ * renderers that never open. querySelector returns the first, which is a 0x0
+ * box, so the button mounted perfectly and was invisible: present in the DOM,
+ * attached to the right kind of container, and impossible to click. Nothing
+ * about it looked like a failure from the inside.
+ */
+function firstVisible(selectors) {
+  for (const sel of selectors) {
+    for (const el of document.querySelectorAll(sel)) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) return el;
+    }
+  }
+  return null;
+}
+
 function mountNativeButton() {
   const target = nativeTarget(location.href);
   const existing = document.getElementById(CRATE_BTN);
   if (!target) return void existing?.remove();
   if (existing?.isConnected) return;
 
-  const bar = YT_BAR.map((sel) => document.querySelector(sel)).find(Boolean);
+  const bar = firstVisible(YT_BAR);
   if (!bar) return;
 
   const btn = makeButton(CRATE_BTN, 'Get', (e) => openPanel(e.currentTarget));
@@ -203,7 +223,7 @@ function mountCrateButton() {
   // is the big engagement bar under the artwork, and `.soundActions` — the
   // per-track one — is deliberately not in the fallback.
   const bar = bars.find((b) => !trackUrlFor(b))
-    ?? document.querySelector('.listenEngagement__actions');
+    ?? firstVisible(['.listenEngagement__actions']);
   if (!bar) return;
 
   const btn = makeButton(CRATE_BTN, label, (e) => openPanel(e.currentTarget));

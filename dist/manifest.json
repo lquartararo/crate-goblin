@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "crate goblin",
-  "version": "0.24.1",
+  "version": "0.25.0",
   "description": "It gets in, it takes the record. SoundCloud, and anything yt-dlp can reach.",
   "permissions": [
     "downloads",
@@ -40,7 +40,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/content.js-loader-Bk7hc3c1.js"
+        "assets/content.js-loader-BUzz1zgR.js"
       ],
       "matches": [
         "https://soundcloud.com/*",
@@ -105,7 +105,7 @@
       "resources": [
         "assets/paths.BMdzPHCt.js",
         "assets/goblin.BW0VxdGw.js",
-        "assets/content.js.D0ylKHuL.js"
+        "assets/content.js.RgYbsSsn.js"
       ],
       "use_dynamic_url": false
     },

@@ -9,6 +9,16 @@
 // listen to is a different kind of thing to keep than a count of how often the
 // gate route beat the stream route, and only the second one is any use here.
 
+import { host } from './host.js';
+
+// Through the host seam, not chrome.storage directly.
+//
+// Recording happens in the offscreen document, which supports only
+// chrome.runtime — no storage. Writing straight to chrome.storage.local there
+// throws on `undefined.local`, the catch below swallowed it, and nothing was
+// ever written: the about box read zero tracks forever and the chart never had
+// enough to draw. host.js exists precisely for this and this file went around
+// it. Same mistake this pipeline made once before, in the same place.
 const KEY = 'stats';
 
 // Roughly a year of heavy weeks. Old entries fall off the front rather than the
@@ -43,9 +53,9 @@ let chain = Promise.resolve();
 export function record({ via, ok = true, bytes = 0 }) {
   chain = chain.then(async () => {
     try {
-      const { [KEY]: log = [] } = await chrome.storage.local.get(KEY);
+      const log = (await host.getStored(KEY)) ?? [];
       log.push({ t: Date.now(), s: sourceOf(via), ok: ok ? 1 : 0, b: Math.round(bytes / 1e6) });
-      await chrome.storage.local.set({ [KEY]: log.slice(-CAP) });
+      await host.setStored(KEY, log.slice(-CAP));
     } catch {
       // Storage unavailable or full. The download already succeeded; this is
       // bookkeeping and is not worth surfacing.
@@ -56,7 +66,7 @@ export function record({ via, ok = true, bytes = 0 }) {
 
 export async function readLog() {
   try {
-    const { [KEY]: log = [] } = await chrome.storage.local.get(KEY);
+    const log = await host.getStored(KEY);
     return Array.isArray(log) ? log : [];
   } catch {
     return [];

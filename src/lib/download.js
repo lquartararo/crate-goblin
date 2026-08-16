@@ -114,7 +114,10 @@ const drmMessage = () => 'DRM-protected, no plain stream offered';
  * ffmpeg, which is the same decision tree this file used to hold and a better
  * implementation of the part underneath it.
  */
-async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
+// The row says where the audio came from, not what fetched it. "yt-dlp" is the
+// name of a program the person reading this did not choose and cannot act on;
+// "256k" is the thing they actually wanted to know.
+async function viaBridge(row, opts, onProgress) {
   onProgress?.({ phase: 'native' });
 
   // Progress arrives as broadcasts while the worker holds the port, because
@@ -154,7 +157,7 @@ async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
     // a large lossless file that came from a small lossy one, so the output
     // format is the one thing that cannot answer "is this the good version".
     return {
-      via: `${label} ${sourceLabel(res.source)}→ ${res.name.split('.').pop()}`.replace(/\s+/g, ' '),
+      via: `${sourceLabel(res.source)}→ ${res.name.split('.').pop()}`.replace(/\s+/g, ' ').trim(),
       bytes: res.bytes ?? 0,
       savedAs: res.name,
     };
@@ -181,7 +184,7 @@ async function viaBridge(row, opts, onProgress, label = 'yt-dlp') {
 async function fetchToDisk(url, row, opts, onProgress) {
   onProgress?.({ phase: 'remuxing' });
   const id = await save(url, stagingName(row));
-  return convertStaged(id, row, opts);
+  return convertStaged(id, row, opts, await streamFloor());
 }
 
 async function convertOnDisk(blob, row, opts, onProgress) {
@@ -198,7 +201,19 @@ async function convertOnDisk(blob, row, opts, onProgress) {
 }
 
 /** The half both staging paths share: find the file, hand it to ffmpeg. */
-async function convertStaged(id, row, opts) {
+/**
+ * The bitrate the stream would give us, which is what a gate has to beat.
+ *
+ * 256k on a Go+ session and 160k without — measured, not guessed: abr_sq is the
+ * premium transcoding and it 404s for anyone else. Conservative on purpose, so
+ * a gate file is only ever declined when it is clearly the worse of the two.
+ */
+async function streamFloor() {
+  const token = await getOAuthToken().catch(() => null);
+  return token ? 256 : 160;
+}
+
+async function convertStaged(id, row, opts, atLeast) {
   const found = await chrome.runtime.sendMessage({ type: 'host:path', id });
   if (!found?.ok) throw new Error('the browser saved the file somewhere it could not name');
 
@@ -209,6 +224,7 @@ async function convertStaged(id, row, opts) {
       format: opts.container ?? 'aiff',
       folder: opts.folder,
       name: filename(row, '').replace(/\.$/, ''),
+      atLeast,
       // The browser has the artwork and the file usually does not.
       artwork: row.artwork,
       tags: {
@@ -220,6 +236,7 @@ async function convertStaged(id, row, opts) {
     },
   });
   if (!res?.ok) throw new Error(res?.reason ?? 'conversion failed');
+  if (res.worse) return { worse: true, kbps: res.kbps };
   return { ext: res.name.split('.').pop(), bytes: res.bytes ?? 0, savedAs: res.name };
 }
 
@@ -271,6 +288,14 @@ async function grabViaGate(row, opts, onProgress) {
   // to it; it also means the bytes never pass through the extension.
   try {
     const out = await fetchToDisk(res.fileUrl, row, opts, onProgress);
+    // The gate's file was worse than the stream on offer. Not a failure — a
+    // measurement — so this reads as a decision rather than something going
+    // wrong, and the stream below is the better file rather than a consolation.
+    if (out.worse) {
+      onProgress?.({ phase: 'fallback', reason: `gate offered ${out.kbps}k` });
+      const better = await viaBridge(row, opts, onProgress);
+      return { ...better, note: `gate had only ${out.kbps}k` };
+    }
     return { via: `gate → ${out.ext}`, bytes: out.bytes, savedAs: out.savedAs };
   } catch (e) {
     // The gate worked and the conversion did not. Reported apart from a gate
@@ -329,7 +354,9 @@ async function grabViaLucida(row, opts, onProgress) {
   const differs = matched && row.title
     && matched.trim().toLowerCase() !== row.title.trim().toLowerCase();
   return {
-    via: `lucida/${service} → ${out.ext}${differs ? ` · matched "${matched}"` : ''}`,
+    // Named by the service the track was found on, not by the thing that
+    // searched it — "amazon" is a fact about the file, "lucida" is plumbing.
+    via: `${service} → ${out.ext}${differs ? ` · matched "${matched}"` : ''}`,
     bytes: out.bytes,
     matchedFrom: service,
   };
@@ -428,14 +455,19 @@ async function route(row, track, opts = {}, onProgress) {
 
   // Stream-only: never touch a gate. yt-dlp is told to take the transcodes and
   // leave the artist's original alone, which is the one thing this mode means.
-  if (mode === 'stream') return viaBridge(row, opts, onProgress, 'stream');
+  if (mode === 'stream') return viaBridge(row, opts, onProgress);
 
   // A free original and a stream are the same call now. yt-dlp checks
   // `downloadable` and `has_downloads_left` itself — the same two fields triage
   // reads — and takes the original when they're set, so the fallback this used
   // to need for artists who revoke downloads without clearing the flag is
   // yt-dlp's problem rather than a branch here.
-  if (row.bucket === BUCKET.FREE) return viaBridge(row, opts, onProgress, 'original');
+  // No "original" label on this. yt-dlp takes the artist's upload when the
+  // flags are still set and a stream when they are not, and a static label
+  // would claim the first while handing you the second — artists revoke
+  // downloads without clearing the flag, which is the whole reason this branch
+  // used to need a fallback. What actually arrived is reported instead.
+  if (row.bucket === BUCKET.FREE) return viaBridge(row, opts, onProgress);
 
   if (row.bucket === BUCKET.GATED) {
     // Stores are attempted too now. They used to short-circuit straight to the

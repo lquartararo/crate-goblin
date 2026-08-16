@@ -212,6 +212,23 @@ def convert(msg):
 
     log(f"convert: {os.path.basename(src)} ({size // 1024} KB) -> {msg.get('format')}")
 
+    # Is what the gate gave us actually better than the stream we could have had?
+    #
+    # A "free download" is usually the artist's master and worth taking over any
+    # transcode. Sometimes it is a 128k mp3 someone exported once, and taking it
+    # over a 256k Go+ stream means the gate cost you quality rather than earning
+    # it. Measured rather than assumed, because nothing about the URL says which
+    # kind it is.
+    floor = msg.get("atLeast")
+    if floor:
+        probed = probe_audio(src)
+        # Lossless always wins; there is no lossy stream that beats it.
+        if probed and not probed["lossless"] and probed["kbps"] and probed["kbps"] + 16 < floor:
+            log(f"convert: source is {probed['kbps']}k, stream offers {floor}k — declining")
+            try: os.unlink(src)
+            except OSError: pass
+            return send({"type": "worse", "kbps": probed["kbps"], "floor": floor})
+
     fmt = str(msg.get("format") or "mp3").lower()
     dest = os.path.join(out_dir_for(msg.get("folder")),
                         safe_component(msg.get("name") or os.path.basename(src)))
@@ -261,6 +278,36 @@ def convert(msg):
 
     send({"type": "done", "path": dest, "name": os.path.basename(dest),
           "bytes": os.path.getsize(dest)})
+
+
+def probe_audio(path):
+    """Codec and bitrate of a file, or None if ffprobe cannot say.
+
+    Bitrate comes from the stream where it is stated and from the container
+    otherwise — a VBR mp3 often reports only the latter, and for this decision
+    an approximate answer is enough.
+    """
+    ffprobe = which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=codec_name,bit_rate:format=bit_rate",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=30, env=child_env())
+        d = json.loads(out.stdout or "{}")
+        stream = (d.get("streams") or [{}])[0]
+        codec = (stream.get("codec_name") or "").lower()
+        rate = stream.get("bit_rate") or (d.get("format") or {}).get("bit_rate")
+        return {
+            "codec": codec,
+            "kbps": round(int(rate) / 1000) if rate and str(rate).isdigit() else None,
+            "lossless": codec in ("flac", "alac", "pcm_s16le", "pcm_s24le", "pcm_f32le"),
+        }
+    except Exception as e:
+        log(f"probe failed: {e}")
+        return None
 
 
 def fetch_artwork(url):
