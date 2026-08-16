@@ -123,7 +123,13 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
           push(row.id, { ...base, text: `segments ${p.done}/${p.total}`, cls: 'working',
                          progress: p.done / p.total });
         } else if (p.phase === 'fallback') {
-          push(row.id, { ...base, text: p.reason ?? 'falling back', cls: 'warn' });
+          // Mid-download, and still working. This used to flash the raw error
+          // in amber while the track was on its way, which is the moment least
+          // worth alarming anyone: nothing has failed, a route was closed and
+          // another is being tried. The reason goes to the console for whoever
+          // is debugging, and the row says what is happening.
+          if (p.reason) console.debug('[crate] fallback:', row.title, '—', p.reason);
+          push(row.id, { ...base, text: 'trying another way', cls: 'working' });
         } else {
           const label = { remuxing: 'converting', decoding: 'decoding', gate: 'working the gate' };
           const text = p.phase === 'lucida'
@@ -140,6 +146,9 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
       // colouring it amber reported a working download as a problem. The
       // reason still travels in the text.
       const failed = Boolean(res.degraded);
+      // Kept out of the row and out of the way, but not thrown away — this is
+      // the only trace of which route was tried first.
+      if (res.note) console.debug('[crate] took the fallback:', row.title, '—', res.note);
       record({ via: res.via, ok: !failed, bytes: res.bytes });
       push(row.id, { text: `${res.via}${size}`, cls: failed ? 'warn' : 'ok',
                      inFlight: false, done: true, progress: 1 });

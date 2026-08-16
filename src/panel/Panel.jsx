@@ -21,10 +21,11 @@ import { decrypt } from './reveal.js';
 import { useSmoothScroll } from './useSmoothScroll.js';
 import { applyTheme, loadTheme } from './themes.js';
 
+// No full stops: these are labels beside a control, not sentences.
 const FORMAT_HINT = {
-  aiff: 'Highest quality.',
-  m4a: 'AIFF quality for a tenth of the size.',
-  mp3: 'Highest compatibility.',
+  aiff: 'Highest quality',
+  m4a: 'AIFF quality for a tenth of the size',
+  mp3: 'Highest compatibility',
 };
 
 const Glyph = ({ name, size = 16 }) => (

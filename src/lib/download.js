@@ -405,17 +405,17 @@ async function route(row, track, opts = {}, onProgress) {
         // still recoverable by hand — this is why row.url survives.
         onProgress?.({ phase: 'fallback', reason: e.message });
         const res = await viaBridge(row, opts, onProgress);
-        // Say which half broke. `unlocked, then ${reason}` means the gate gave
-        // up a file and something on our side lost it, which is a bug rather
-        // than a fact about the internet.
-        const why = e.afterUnlock
-          ? `unlocked, then ${e.message}`
-          // Was the bare word "failed". A gate that is actually a shop, one
-          // whose markup moved, and one that clicked through to nothing are
-          // three different situations, and only the middle one is worth
-          // anyone's time.
-          : e.message.replace(/\s+—\s+/g, ' · ');
-        return { ...res, via: `${res.via} (${why})` };
+
+        // The row says what it got, and nothing about what it tried first.
+        //
+        // A gate refusing is the normal case — it happens on most tracks — and
+        // annotating every one of them made a finished crate read as a page of
+        // things that had gone wrong. Two of the three people using this cannot
+        // tell "we took the other route" from "this is broken", and it is not
+        // worth frightening them to report a fact they cannot act on.
+        //
+        // The reason still exists, on `note`, for anything that wants it.
+        return { ...res, note: e.afterUnlock ? `unlocked, then ${e.message}` : e.message };
       }
     }
 
