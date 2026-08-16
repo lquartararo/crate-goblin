@@ -139,6 +139,10 @@ async function convertOnDisk(blob, row, opts, onProgress) {
 
   // A staging name, because the converter names the finished file. Two of them
   // in flight at once would otherwise collide on a shared folder.
+  //
+  // The folder is agreed with the host, which sweeps anything left here by a
+  // conversion that died — see STAGING in crate-goblin-host.py. Renaming it
+  // needs both sides.
   const id = await save(blob, `crate-goblin-staging/${crypto.randomUUID()}`);
   const found = await chrome.runtime.sendMessage({ type: 'host:path', id });
   if (!found?.ok) throw new Error('the browser saved the file somewhere it could not name');

@@ -120,6 +120,12 @@ echo "--- \$(date '+%Y-%m-%d %H:%M:%S') ---"
 "$GIT" -C "$REPO" pull --ff-only --quiet || echo "git pull failed"
 YTDLP="\$(command -v yt-dlp || echo "\$HOME/.local/bin/yt-dlp")"
 [ -x "\$YTDLP" ] && "\$YTDLP" -U 2>&1 | tail -1
+# The host sweeps this whenever it runs; this is the backstop for a machine
+# that stopped using the extension with a file still sitting there.
+STAGING="\$HOME/Downloads/crate-goblin-staging"
+[ -d "\$STAGING" ] && find "\$STAGING" -type f -mmin +60 -delete 2>/dev/null
+[ -d "\$STAGING" ] && rmdir "\$STAGING" 2>/dev/null
+exit 0
 TICK_EOF
 chmod +x "$TICK"
 

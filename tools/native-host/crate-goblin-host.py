@@ -85,6 +85,41 @@ def child_env():
 YTDLP_FORMATS = {"mp3": "mp3", "m4a": "m4a", "flac": "flac", "wav": "wav"}
 
 
+# Where the browser drops a gate or lucida file on its way to ffmpeg. The
+# extension picks this name; the two have to agree, so it is written down in
+# both places rather than derived.
+STAGING = os.path.join(os.path.expanduser("~/Downloads"), "crate-goblin-staging")
+
+# Long enough that nothing in flight is ever in scope — a conversion takes
+# seconds — and short enough that a stray file does not sit there for a week.
+STALE_AFTER = 60 * 60
+
+
+def sweep_staging():
+    """Clear staging files left behind by a conversion that did not finish.
+
+    convert() removes its source on success and deliberately leaves it on
+    failure, so the audio is still on disk if it is ever wanted. That is the
+    right call for the file and the wrong one for the folder, which otherwise
+    accumulates them under names nobody can read. Age is the whole test: a file
+    older than an hour is not being worked on.
+    """
+    try:
+        now = time.time()
+        for name in os.listdir(STAGING):
+            path = os.path.join(STAGING, name)
+            if os.path.isfile(path) and now - os.path.getmtime(path) > STALE_AFTER:
+                os.unlink(path)
+                log(f"swept stale staging file: {name}")
+        # An empty staging folder in Downloads is still clutter.
+        if not os.listdir(STAGING):
+            os.rmdir(STAGING)
+    except FileNotFoundError:
+        pass          # never used, or already clean
+    except OSError as e:
+        log(f"staging sweep failed: {e}")
+
+
 def unique(path):
     """A path that does not exist yet. Re-downloading a track for a different
     set is normal, and the older file may already be in a playlist."""
@@ -112,6 +147,8 @@ def convert(msg):
     implementation living beside ffmpeg and losing to it — lamejs for mp3, a
     hand-rolled WAV writer for aiff.
     """
+    sweep_staging()
+
     ffmpeg = which("ffmpeg")
     if not ffmpeg:
         return send({"type": "error", "reason": "ffmpeg is not installed. Re-run install-updater.sh"})
@@ -222,6 +259,7 @@ def safe_component(name):
 
 
 def probe():
+    sweep_staging()
     ytdlp, ffmpeg = which("yt-dlp"), which("ffmpeg")
     # YouTube hands out a JS challenge that has to be run to get the good
     # formats. Without a runtime nothing errors — the audio just quietly gets
