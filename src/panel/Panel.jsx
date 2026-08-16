@@ -300,6 +300,19 @@ export function Panel() {
               </Field>
             )}
 
+            {crate.rows.some((r) => r.source === 'youtube') && (
+              <Field label="Take">
+                <Select value={settings.media} onValueChange={(v) => set('media', v)}>
+                  <SelectTrigger className="min-w-[130px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="audio">Audio only</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+
+            {settings.media !== 'video' && (
             <Field label="Format">
               {/* Hint beside the control, never beneath: the row aligns on
                   flex-end, so anything stacked under one select lifts it clear
@@ -319,7 +332,7 @@ export function Panel() {
                 </span>
               </span>
             </Field>
-
+            )}
 
             <div className="flex gap-2.5 ml-auto">
               <Button size="sm" variant="primary" onClick={onDownload}

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 
 const KEY = 'settings';
-const DEFAULTS = { mode: 'best', 'gated-policy': 'auto', container: 'aiff' };
+// `media` only means anything on YouTube. Kept alongside the rest rather than
+// hidden behind the source, because it is a preference about what you want, not
+// about where it comes from.
+const DEFAULTS = { mode: 'best', 'gated-policy': 'auto', container: 'aiff', media: 'audio' };
 
 /**
  * Download settings, persisted.
@@ -36,6 +39,7 @@ export function useSettings() {
     mode: settings.mode,
     gatedPolicy: settings['gated-policy'],
     container: settings.container,
+    media: settings.media,
   };
 
   return { settings, set, opts, loaded };

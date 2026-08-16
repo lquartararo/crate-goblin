@@ -15,7 +15,7 @@ import { BUCKET, isAutomatable } from './triage.js';
 import { host } from './host.js';
 import { currentSession } from './session.js';
 import { fetchTrack } from './lucida.js';
-import { fetchFromYouTube, fetchRowAudio } from './youtube.js';
+import { fetchFromYouTube, fetchRowMedia } from './youtube.js';
 
 // Rekordbox and Serato both key off the filename when tags are thin, and a
 // slash in a title will silently nest it into a folder you didn't ask for.
@@ -531,14 +531,24 @@ async function route(row, track, opts = {}, onProgress) {
   // on an id that isn't a SoundCloud one.
   if (row.source === 'youtube') {
     onProgress?.({ phase: 'youtube' });
-    const blob = await fetchRowAudio(row, {
+    const { blob, ext, kind } = await fetchRowMedia(row, {
+      want: opts.media === 'video' ? 'video' : 'audio',
       onProgress: (p) => onProgress?.({ phase: 'youtube', stage: p?.stage }),
     });
     if (blob.size < MIN_PLAUSIBLE_BYTES) throw new Error(`file too small (${blob.size} B)`);
-    // Opus in WebM. finalize decodes it like anything else and the requested
-    // container still wins.
-    const out = await finalize(blob, 'webm', row, opts, onProgress);
-    return { via: `youtube → ${out.ext}`, bytes: out.bytes };
+
+    // Video is kept whole. Running it through finalize would decode the audio
+    // and write that instead, which is the opposite of what was asked for.
+    if (kind === 'video') {
+      await save(blob, filename(row, ext, opts.folder));
+      return { via: `youtube → ${ext} (video)`, bytes: blob.size };
+    }
+
+    // Audio, or a muxed file taken because no audio-only stream existed. Either
+    // way the decoder ignores any picture, so the chosen format still wins.
+    const out = await finalize(blob, ext, row, opts, onProgress);
+    const note = kind === 'muxed' ? ' (from a muxed stream)' : '';
+    return { via: `youtube → ${out.ext}${note}`, bytes: out.bytes };
   }
 
   if (row.previewOnly) {

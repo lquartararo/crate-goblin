@@ -153,12 +153,46 @@ function choose(results, wantSeconds) {
   return null;
 }
 
-/** Highest-bitrate audio-only stream, or null when only muxed ones exist. */
-function bestAudio(info) {
-  const formats = info?.streaming_data?.adaptive_formats ?? [];
-  return formats
-    .filter((f) => f.has_audio && !f.has_video && f.url)
-    .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0] ?? null;
+const isAudio = (f) => f?.mime_type?.startsWith('audio/') || (f?.has_audio && !f?.has_video);
+const isVideo = (f) => f?.mime_type?.startsWith('video/') || f?.has_video;
+const byBitrate = (a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0);
+const pixels = (f) => (f?.width ?? 0) * (f?.height ?? 0);
+
+/**
+ * Choose what to actually download.
+ *
+ * Never filters on `f.url`. Adaptive formats normally carry `signatureCipher`
+ * instead and only produce a URL once decipher() has run, so requiring one up
+ * front discarded every audio-only stream on the video and reported that
+ * YouTube had offered none — which was never true.
+ *
+ * @param {'audio'|'video'} want
+ */
+export function pickFormat(info, want = 'audio') {
+  const adaptive = info?.streaming_data?.adaptive_formats ?? [];
+  // Muxed entries carry both tracks in one file, which is what the video path
+  // wants and what the audio path falls back to.
+  const muxed = info?.streaming_data?.formats ?? [];
+
+  if (want === 'video') {
+    const best = [...muxed, ...adaptive.filter(isVideo)]
+      .sort((a, b) => pixels(b) - pixels(a) || byBitrate(a, b))[0];
+    if (!best) throw new Error('YouTube offered no video stream');
+    return { format: best, kind: 'video' };
+  }
+
+  const audioOnly = adaptive.filter(isAudio).sort(byBitrate);
+  if (audioOnly.length) return { format: audioOnly[0], kind: 'audio' };
+
+  // Genuinely none, which does happen on some live and members-only items.
+  // Take the smallest picture that still carries sound: the video is about to
+  // be thrown away by the decoder, so every pixel is wasted bandwidth, and
+  // bitrate breaks the tie because two 360p entries can differ in audio.
+  const carriesAudio = [...muxed, ...adaptive].filter((f) => f?.has_audio);
+  if (!carriesAudio.length) throw new Error('YouTube offered no audio at all');
+
+  const cheapest = carriesAudio.sort((a, b) => pixels(a) - pixels(b) || byBitrate(a, b))[0];
+  return { format: cheapest, kind: 'muxed' };
 }
 
 /**
@@ -179,9 +213,7 @@ export async function fetchFromYouTube(query, { durationMs, onProgress, signal }
   onProgress?.({ stage: 'resolving' });
   const info = await yt.getBasicInfo(picked.id);
 
-  const format = bestAudio(info);
-  if (!format) throw new Error('YouTube offered no audio-only stream');
-
+  const { format } = pickFormat(info, 'audio');
   const res = await fetch(format.decipher(yt.session.player), { signal });
   if (!res.ok) throw new Error(`YouTube audio ${res.status}`);
 
@@ -286,16 +318,25 @@ export async function loadYouTube(pageUrl) {
 }
 
 /** Fetch audio for a row this module produced. */
-export async function fetchRowAudio(row, { onProgress, signal } = {}) {
+/**
+ * Fetch a row this module produced.
+ *
+ * @returns {Promise<{blob: Blob, ext: string, kind: 'audio'|'video'|'muxed'}>}
+ */
+export async function fetchRowMedia(row, { want = 'audio', onProgress, signal } = {}) {
   const yt = await innertube();
   const id = String(row.id).replace(/^yt:/, '');
 
   onProgress?.({ stage: 'resolving' });
   const info = await yt.getBasicInfo(id);
-  const format = bestAudio(info);
-  if (!format) throw new Error('YouTube offered no audio-only stream');
+  const { format, kind } = pickFormat(info, want);
 
   const res = await fetch(format.decipher(yt.session.player), { signal });
-  if (!res.ok) throw new Error(`YouTube audio ${res.status}`);
-  return res.blob();
+  if (!res.ok) throw new Error(`YouTube media ${res.status}`);
+
+  // The container, from what YouTube said it is rather than from the codec.
+  const mime = String(format.mime_type ?? '');
+  const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'mp4' : 'webm';
+
+  return { blob: await res.blob(), ext, kind };
 }
