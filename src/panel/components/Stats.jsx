@@ -5,6 +5,7 @@ import { BarChart } from '../../vendor/dither-kit/bar-chart';
 import { Bar } from '../../vendor/dither-kit/bar';
 import { PieChart } from '../../vendor/dither-kit/pie-chart';
 import { Pie } from '../../vendor/dither-kit/pie';
+import { PALETTE, rgb } from '../../vendor/dither-kit/palette';
 import { readLog, summarize } from '../../lib/stats.js';
 
 // Three charts, because there are three different questions.
@@ -63,6 +64,28 @@ const Figure = ({ value, label }) => (
       {label}
     </span>
   </div>
+);
+
+/**
+ * Which tone is which.
+ *
+ * dither-kit ships a Legend, and its own note says it is an absolute overlay
+ * suited to two or three entries — five routes in a side panel would sit on top
+ * of the chart. Beside it instead, reading the same seeds the slices are painted
+ * from so the two can never disagree.
+ */
+const Key = ({ items }) => (
+  <ul className="m-0 p-0 list-none grid gap-1.5">
+    {items.map(({ key, label, n }) => (
+      <li key={key} className="flex items-center gap-2 font-mono text-[10px]
+                               tracking-[.1em] uppercase leading-none">
+        <span className="w-2.5 h-2.5 flex-none rounded-[1px]"
+              style={{ background: rgb(PALETTE[ROUTE[key]?.color ?? 'crate'].fill) }} />
+        <span className="opacity-70">{label}</span>
+        <span className="ml-auto tabular-nums opacity-45">{n}</span>
+      </li>
+    ))}
+  </ul>
 );
 
 const Caption = ({ children, right }) => (
@@ -126,25 +149,34 @@ export function Stats() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-start gap-x-8 gap-y-6">
+      <div className="flex flex-wrap items-start gap-x-10 gap-y-7">
         {routes.length > 1 && (
-          <div className="min-w-[190px] flex-1">
+          <div>
             <Caption>Where they came from</Caption>
-            <div className="h-[168px]">
-              {/* A donut: the hole is what stops five slices in one hue reading
-                  as a single blob, and it leaves the eye an edge to follow. */}
-              <PieChart data={routes} config={ROUTE} dataKey="n" nameKey="route"
-                        innerRadius={0.55}>
-                <Pie variant="gradient" />
-              </PieChart>
+            {/* The donut gets a fixed box rather than a flexible one. Given the
+                whole width it centred itself in the panel while every caption
+                and figure around it started at the left margin, which read as a
+                chart that had come loose. */}
+            <div className="flex items-center gap-5">
+              <div className="w-[150px] h-[150px] flex-none">
+                {/* The hole is what stops five slices of one hue reading as a
+                    single blob, and gives the eye an edge to follow. */}
+                <PieChart data={routes} config={ROUTE} dataKey="n" nameKey="route"
+                          innerRadius={0.55}>
+                  <Pie variant="gradient" />
+                </PieChart>
+              </div>
+              <Key items={routes.map((r) => ({
+                key: r.route, label: ROUTE[r.route]?.label ?? r.route, n: r.n,
+              }))} />
             </div>
           </div>
         )}
 
         {genres.length > 1 && (
-          <div className="min-w-[190px] flex-1">
+          <div className="min-w-[200px] flex-1">
             <Caption right={`top ${genres.length}`}>What you dig for</Caption>
-            <div className="h-[168px]">
+            <div className="h-[150px]">
               <BarChart data={genres} config={GENRE} interactive={false}>
                 <Bar dataKey="n" variant="gradient" />
               </BarChart>
@@ -155,24 +187,16 @@ export function Stats() {
 
       <div className="flex flex-wrap gap-x-9 gap-y-4">
         <Figure value={data.total} label="tracks kept" />
+        {/* Absent rather than zero while the history predates it. Duration is
+            measured off the file, so entries recorded before that existed carry
+            none and there is nothing to reconstruct them from — a "0 minutes"
+            beside 61 tracks would be a wrong answer where no answer is honest. */}
         {data.seconds > 0 && <Figure {...playtime(data.seconds)} />}
-        {data.mb > 0 && (
-          <Figure value={data.mb >= 1000 ? `${(data.mb / 1000).toFixed(1)} GB` : `${data.mb} MB`}
-                  label="on disk" />
-        )}
         {data.top && (
           <Figure value={data.bySource[data.top]}
                   label={`via ${(ROUTE[data.top]?.label ?? data.top).toLowerCase()}`} />
         )}
       </div>
-
-      {/* Only once it has happened. A permanent zero invites you to fix
-          something that is not broken. */}
-      {data.failed > 0 && (
-        <p className="font-mono text-[10px] tracking-[.1em] uppercase opacity-45">
-          {data.failed} did not make it
-        </p>
-      )}
     </section>
   );
 }
