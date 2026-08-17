@@ -6,7 +6,7 @@ import { Bar } from '../../vendor/dither-kit/bar';
 import { PieChart } from '../../vendor/dither-kit/pie-chart';
 import { Pie } from '../../vendor/dither-kit/pie';
 import { PALETTE, rgb } from '../../vendor/dither-kit/palette';
-import { readLog, summarize } from '../../lib/stats.js';
+import { readLog, summarize, STATS_EVENT } from '../../lib/stats.js';
 
 // Three charts, because there are three different questions.
 //
@@ -109,7 +109,10 @@ export function Stats() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    readLog().then((log) => setData(log.length ? summarize(log, WEEKS) : null));
+    const read = () => readLog().then((log) => setData(log.length ? summarize(log, WEEKS) : null));
+    read();
+    addEventListener(STATS_EVENT, read);
+    return () => removeEventListener(STATS_EVENT, read);
   }, []);
 
   if (!data) {

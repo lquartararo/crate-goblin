@@ -94,8 +94,12 @@ export function About({ onClose }) {
       return;
     }
     await clearLog();
+    // Re-read rather than assume: clearLog decides what an empty history looks
+    // like, and a second opinion here could disagree with the charts it just
+    // told to refresh.
+    const fresh = summarize(await readLog());
     setConfirming(false);
-    setDetail((d) => ({ ...d, stats: summarize([]) }));
+    setDetail((d) => ({ ...d, stats: fresh }));
   }
 
   async function copy() {

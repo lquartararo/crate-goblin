@@ -74,9 +74,16 @@ export function record({ via, source, genre, seconds, ok = true, bytes = 0 }) {
   return chain;
 }
 
+// Announced, because the charts are on screen behind the dialog that clears
+// them. Resetting emptied the store and left every chart drawn from the copy it
+// had already read — the numbers in the dialog went to zero and the graphs kept
+// the old shape, which looks like a reset that only half worked.
+export const STATS_EVENT = 'cg:stats';
+
 /** Forget everything. The history is a convenience, not a record. */
 export async function clearLog() {
   try { await host.setStored(KEY, []); } catch { /* nothing to clear */ }
+  try { dispatchEvent(new Event(STATS_EVENT)); } catch { /* no window here */ }
 }
 
 export async function readLog() {
