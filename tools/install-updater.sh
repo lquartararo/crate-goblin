@@ -40,6 +40,8 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=paths.sh
+. "$REPO/tools/paths.sh"
 [[ -d "$REPO/.git" ]] || { echo "error: $REPO is not a git checkout" >&2; exit 1; }
 
 GIT="$(command -v git)" || { echo "error: git not found" >&2; exit 1; }
@@ -49,8 +51,21 @@ GIT="$(command -v git)" || { echo "error: git not found" >&2; exit 1; }
 # Homebrew when it's there, pip otherwise. Either is fine; what matters is that
 # `yt-dlp -U` can update it in place afterwards.
 echo "==> yt-dlp"
-if command -v yt-dlp >/dev/null; then
-  echo "    already installed ($(yt-dlp --version 2>/dev/null || echo unknown))"
+# Resolved the way the extension will see it, not the way this shell does.
+# "already installed" used to be decided by `command -v`, which is true of a
+# copy sitting somewhere only your shell knows — the install reported success
+# and every download said the downloader was missing.
+SEEN="$(find_tool yt-dlp || true)"
+if [ -n "$SEEN" ]; then
+  echo "    already installed ($("$SEEN" --version 2>/dev/null || echo unknown))"
+  # And bring it up to date. YouTube breaks it about monthly, so an old one is
+  # not a working one.
+  "$SEEN" -U 2>&1 | tail -1 || true
+elif command -v yt-dlp >/dev/null && command -v brew >/dev/null; then
+  # On PATH but not anywhere the extension looks. Installing brew's copy puts
+  # one where both can find it rather than trying to guess at the other.
+  echo "    found $(command -v yt-dlp), which the extension cannot see — installing brew's"
+  brew install yt-dlp
 elif command -v brew >/dev/null; then
   brew install yt-dlp
 elif command -v pip3 >/dev/null; then
@@ -71,19 +86,6 @@ else
     echo "    download failed. YouTube will not work until yt-dlp is installed." >&2
   fi
 fi
-
-# Where the host will look, in the host's own order. Duplicated deliberately:
-# if these two disagree the install "succeeds" and nothing works, which is
-# exactly the failure this check exists to catch.
-find_tool() {
-  local name="$1" d
-  for d in /opt/homebrew/bin /usr/local/bin /opt/local/bin /usr/bin /bin \
-           "$HOME/.local/bin" "$HOME/bin" "$HOME/.bun/bin" \
-           "$HOME"/Library/Python/*/bin; do
-    [ -x "$d/$name" ] && { echo "$d/$name"; return 0; }
-  done
-  return 1
-}
 
 # Verify rather than assume. pip installs to ~/Library/Python/<version>/bin,
 # which is on nobody's PATH — the install reports success and the downloader is

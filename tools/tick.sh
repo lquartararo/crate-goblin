@@ -13,10 +13,19 @@
 # because a machine nobody is sitting at should keep the parts that still work.
 set -u
 REPO="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# shellcheck source=paths.sh
+. "$REPO/tools/paths.sh"
 
 # ---------------------------------------------------------------- yt-dlp
-YTDLP="$(command -v yt-dlp || echo "$HOME/.local/bin/yt-dlp")"
-[ -x "$YTDLP" ] && "$YTDLP" -U 2>&1 | tail -1
+# Not `command -v`. launchd gives an agent almost no PATH, so that resolved
+# nothing every half hour and yt-dlp was never once updated — which is how an
+# install reaches a year old while a timer claims to be maintaining it.
+YTDLP="$(find_tool yt-dlp || true)"
+if [ -n "$YTDLP" ]; then
+  "$YTDLP" -U 2>&1 | tail -1
+else
+  echo "yt-dlp not found in any known location — re-run tools/install-updater.sh"
+fi
 
 # ------------------------------------------------------------ JS runtime
 #
