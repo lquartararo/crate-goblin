@@ -100,40 +100,54 @@ def sweep_staging(force=False):
 
     Two modes. Normally only files older than an hour go, because a conversion
     could be running. `force` is for the moments when nothing can be in flight —
-    the queue has drained, or the browser has just started — and then everything
-    goes regardless of age.
+    the queue has drained, the panel opened, the browser started — and then the
+    whole directory goes.
 
-    The folder used to survive every sweep, and .DS_Store was the reason. macOS
-    writes one into any directory Finder displays, so the moment you looked at
-    your Downloads folder this one became permanently non-empty and rmdir failed
-    with ENOTEMPTY forever after. Emptiness is judged on real files now, and a
-    forced sweep removes the dotfiles too — there is nothing in here anyone put
-    on purpose.
+    Forced removal is rmtree rather than unlink-then-rmdir. That sequence kept
+    clearing the contents and leaving the folder, because macOS writes a
+    .DS_Store into any directory Finder has displayed and will write it again
+    between the listing and the rmdir. There is no ordering that wins that race;
+    removing the tree in one call sidesteps it. Nothing in here is anyone's data
+    — it is a staging area this program owns.
     """
+    if not os.path.isdir(STAGING):
+        return
+
+    if force:
+        try:
+            shutil.rmtree(STAGING)
+            log("swept staging and removed the folder")
+        except OSError as e:
+            # Named precisely, because "it is still there" has several causes
+            # and they need different answers: EACCES/EPERM is macOS refusing
+            # this process the folder, ENOTEMPTY means something appeared while
+            # we were working.
+            log(f"could not remove staging: errno {e.errno} — {e}")
+        return
+
     try:
         now = time.time()
         for name in os.listdir(STAGING):
             path = os.path.join(STAGING, name)
             if not os.path.isfile(path):
                 continue
-            if force or now - os.path.getmtime(path) > STALE_AFTER:
+            if now - os.path.getmtime(path) > STALE_AFTER:
                 try:
                     os.unlink(path)
-                    if not name.startswith("."):
-                        log(f"swept staging file: {name}")
-                except OSError:
-                    pass
+                    log(f"swept stale staging file: {name}")
+                except OSError as e:
+                    log(f"could not remove {name}: {e}")
 
-        # Anything the operating system left behind does not count as contents.
+        # Nothing real left: the rest is whatever the operating system put here.
         if not [n for n in os.listdir(STAGING) if not n.startswith(".")]:
-            for n in os.listdir(STAGING):
-                try: os.unlink(os.path.join(STAGING, n))
-                except OSError: pass
-            os.rmdir(STAGING)
+            try:
+                shutil.rmtree(STAGING)
+            except OSError as e:
+                log(f"could not remove empty staging: errno {e.errno} — {e}")
     except FileNotFoundError:
-        pass          # never used, or already clean
+        pass
     except OSError as e:
-        log(f"staging sweep failed: {e}")
+        log(f"staging sweep failed: errno {e.errno} — {e}")
 
 
 def discard(msg):
