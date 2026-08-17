@@ -1,127 +1,164 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BAYER4, clamp01 } from '../dither-kit.js';
 import { roles } from '../palette.js';
 import { useThemeTick } from '../useThemeTick.js';
+import soundcloudSvg from '../marks/soundcloud.svg?raw';
+import youtubeSvg from '../marks/youtube.svg?raw';
 
-// Provider marks, drawn as cells and dithered like everything else here.
+// Provider marks: the real logos, rasterised and dithered.
 //
-// Rebuilt from scratch after several attempts that all failed the same two
-// ways, both decided before a single cell was drawn:
+// These were drawn by hand before this — five times, wrong five times. The
+// cloud too tall, the bars too thin, the badge stretched. Every one of those
+// was an approximation of a shape from memory, on a lattice also guessed at.
+// The artwork is the artwork; the only interesting question is how to get it
+// into this panel's material, and that is a rasterise and a threshold.
 //
-//   The grid was square. The SoundCloud logo is about two and a half times
-//   wider than it is tall, so a 16x16 lattice left the cloud narrower than it
-//   was deep — which reads as a cloud squashed against the frame however its
-//   corners are rounded. Adjusting runs cannot fix an aspect ratio, and four
-//   goes at rounding corners never touched the actual problem. Each mark
-//   carries its own dimensions now.
+// Two things make this work on any SVG rather than these two in particular:
 //
-//   The features were one cell wide. A halftone works by removing coverage, so
-//   a one-cell bar loses half of itself and becomes a dotted line — the
-//   waveform was disintegrating by design. Nothing here is thinner than two
-//   cells, which is what lets the dither read as texture rather than as damage.
+//   The ink is measured, not the viewBox. SoundCloud's box is square while its
+//   logo is 2.22:1 — 56% of the stated box is empty — so drawing the box would
+//   put a wide mark in a tall frame and shrink it to nothing. The opaque
+//   bounding box is found once and everything derives from it, so a replacement
+//   file with different padding needs no code change.
 //
-// Each mark carries its own lattice, because the two logos are not the same
-// shape and one grid cannot serve both. Forcing YouTube onto SoundCloud's wide
-// grid stretched a near-square badge into a letterbox; forcing SoundCloud onto
-// YouTube's square one squashed the cloud. That was the whole of the problem
-// across several attempts.
-const MARKS = {
-  soundcloud: {
-    cols: 36,
-    rows: 16,
-    // Drawn from the real mark rather than from memory. Two things make it
-    // recognisable and neither was there before:
-    //
-    //   the cloud has a flat vertical left edge where the waveform meets it,
-    //   not a rounded crown sitting on a box;
-    //
-    //   its top domes, then DIPS, then rises again into a smaller right lobe
-    //   before falling away. Without that dip it is a hill, which is what every
-    //   previous attempt drew.
-    //
-    // The bars are lozenges in the original. At two cells they read as bars,
-    // which is as close as this resolution gets and closer than one cell, where
-    // the halftone eats them.
-    ink: [
-      [0, 7, 2, 3], [3, 6, 2, 5], [6, 5, 2, 7],
-      [9, 4, 2, 9], [12, 3, 2, 10], [15, 3, 2, 10],
-      // cloud, column by column: the profile is the shape
-      [19, 4, 1, 9], [20, 3, 1, 10], [21, 2, 1, 11], [22, 2, 1, 11],
-      [23, 2, 1, 11], [24, 2, 1, 11], [25, 3, 1, 10], [26, 4, 1, 9],
-      [27, 5, 1, 8], [28, 5, 1, 8],
-      [29, 4, 1, 9], [30, 4, 1, 9], [31, 4, 1, 9], [32, 5, 1, 8],
-      [33, 6, 1, 7], [34, 7, 1, 5],
-    ],
-    knockout: [],
-  },
-  youtube: {
-    // Square, as it was. The badge is near enough to square that widening it
-    // reads as a stretched logo rather than a wide one.
-    cols: 16,
-    rows: 16,
-    ink: [[2, 3, 12, 1], [1, 4, 14, 8], [2, 12, 12, 1]],
-    knockout: [[6, 5, 2, 6], [8, 6, 2, 4], [10, 7, 1, 2]],
-  },
-};
+//   The threshold is on coverage, not colour. These arrive as solid black on
+//   transparent; what matters is which cells the shape covers, and the Bayer
+//   matrix turns that into the same halftone the artwork and the goblin use.
+
+const SVG = { soundcloud: soundcloudSvg, youtube: youtubeSvg };
+
+// Measured once per mark and kept. The answer cannot change, and a side panel
+// mounts these every time it opens.
+const measured = new Map();
+
+const toUrl = (svg) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+/**
+ * The opaque bounding box of a rasterised SVG.
+ *
+ * Measured large so a thin feature — the shortest waveform bar is about one
+ * part in eighty of the width — cannot fall below a pixel and be missed.
+ */
+async function inkBox(svg) {
+  const img = new Image();
+  img.src = toUrl(svg);
+  await img.decode();
+
+  const S = 400;
+  const c = document.createElement('canvas');
+  c.width = S;
+  c.height = S;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  const scale = Math.min(S / img.naturalWidth, S / img.naturalHeight);
+  const w = img.naturalWidth * scale;
+  const h = img.naturalHeight * scale;
+  const offX = (S - w) / 2;
+  const offY = (S - h) / 2;
+  ctx.drawImage(img, offX, offY, w, h);
+
+  const d = ctx.getImageData(0, 0, S, S).data;
+  let x0 = S, y0 = S, x1 = -1, y1 = -1;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      if (d[((y * S + x) << 2) + 3] <= 24) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) {
+    return { img, sx: 0, sy: 0, sw: img.naturalWidth, sh: img.naturalHeight, aspect: 1 };
+  }
+
+  // Back into the image's own coordinates. The box was found on a canvas the
+  // image had been scaled and centred into, and handing those numbers straight
+  // to drawImage as source coordinates crops a different part of a differently
+  // sized picture — which drew ten pixels of one corner and nothing else.
+  const sw = (x1 - x0 + 1) / scale;
+  const sh = (y1 - y0 + 1) / scale;
+  return {
+    img,
+    sx: (x0 - offX) / scale,
+    sy: (y0 - offY) / scale,
+    sw,
+    sh,
+    aspect: sw / sh,
+  };
+}
 
 /**
  * @param {'soundcloud'|'youtube'} name
- * @param {number} height  rendered height in CSS px; the width follows the mark
- *
- * Sized by height rather than width, so a wide mark and a square one sit at the
- * same weight in a row instead of one towering over the other.
+ * @param {number} height  rendered height in CSS px; the width follows the ink
  */
-export function ProviderMark({ name, height = 22, className = '' }) {
+export function ProviderMark({ name, height = 24, className = '' }) {
   const ref = useRef(null);
   const theme = useThemeTick();
-
-  const { cols: COLS, rows: ROWS } = MARKS[name] ?? MARKS.youtube;
-  const width = Math.round((height * COLS) / ROWS);
+  const [aspect, setAspect] = useState(() => measured.get(name)?.aspect ?? null);
 
   useEffect(() => {
-    const canvas = ref.current;
-    const mark = MARKS[name];
-    if (!canvas || !mark) return;
+    let live = true;
+    const svg = SVG[name];
+    if (!svg) return undefined;
 
-    const { ink } = roles();
-    const cell = width / COLS;
+    (async () => {
+      const box = measured.get(name) ?? await inkBox(svg);
+      measured.set(name, box);
+      if (!live) return;
+      setAspect(box.aspect);
 
-    const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill('.'));
-    const stamp = (runs, ch) => {
-      for (const [x, y, w = 1, h = 1] of runs) {
-        for (let j = y; j < y + h && j < ROWS; j++) {
-          for (let i = x; i < x + w && i < COLS; i++) grid[j][i] = ch;
+      const canvas = ref.current;
+      if (!canvas) return;
+
+      const width = Math.max(1, Math.round(height * box.aspect));
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      // Drawn straight to the final size rather than downscaled from the
+      // measuring pass: a downscale averages neighbouring cells together, which
+      // is the one thing that reliably turns a halftone back into mush.
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(box.img, box.sx, box.sy, box.sw, box.sh, 0, 0, width, height);
+
+      const { ink } = roles();
+      const img = ctx.getImageData(0, 0, width, height);
+      const px = img.data;
+
+      for (let y = 0; y < height; y++) {
+        // Shallower than the goblin's, because this is a third of its size. At
+        // 0.26 the ramp fell below whole rows of the Bayer matrix and those
+        // rows dropped out together — which reads as scanlines across the mark
+        // rather than as a halftone in it. The texture is still there; it just
+        // no longer takes a row at a time.
+        const ramp = clamp01(1 - 0.13 * (y / height));
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) << 2;
+          // Coverage, not colour. Anti-aliased edges arrive as partial alpha
+          // and this hardens them, which keeps the outline crisp rather than
+          // fading it to grey.
+          const covered = px[i + 3] / 255;
+          const lit = covered > 0.45 && ramp > BAYER4[y & 3][x & 3];
+          if (!lit) { px[i + 3] = 0; continue; }
+          px[i] = ink[0];
+          px[i + 1] = ink[1];
+          px[i + 2] = ink[2];
+          px[i + 3] = 255;
         }
       }
-    };
-    stamp(mark.ink, '#');
-    stamp(mark.knockout, 'o');
+      ctx.putImageData(img, 0, 0);
+    })();
 
-    const ctx = canvas.getContext('2d');
-    const img = ctx.createImageData(width, height);
-    const px = img.data;
-
-    for (let y = 0; y < height; y++) {
-      // A shallow ramp. The mark is the halftone and the ground is nothing, so
-      // this is the whole texture — but much below this the two-cell features
-      // start losing rows and it stops looking deliberate.
-      const density = clamp01(1 - 0.26 * (y / height));
-      for (let x = 0; x < width; x++) {
-        const ch = grid[Math.min((y / cell) | 0, ROWS - 1)][Math.min((x / cell) | 0, COLS - 1)];
-        const lit = ch === '#' && density > BAYER4[y & 3][x & 3];
-        const i = (y * width + x) << 2;
-        if (!lit) { px[i + 3] = 0; continue; }   // knockout and ground alike
-        px[i] = ink[0]; px[i + 1] = ink[1]; px[i + 2] = ink[2]; px[i + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-  }, [name, width, height, COLS, ROWS, theme]);
+    return () => { live = false; };
+  }, [name, height, theme]);
 
   return (
     <canvas
       ref={ref}
-      width={width}
-      height={height}
+      // Sized in CSS before the measurement lands, so a row of marks does not
+      // jump when they resolve. Square is the safer guess — too wide would
+      // shove the label sideways and snap back.
+      style={{ width: Math.round(height * (aspect ?? 1)), height }}
       role="img"
       aria-label={name}
       className={`block flex-none [image-rendering:pixelated] ${className}`}
