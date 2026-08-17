@@ -20,38 +20,63 @@ import { useThemeTick } from '../useThemeTick.js';
 //   waveform was disintegrating by design. Nothing here is thinner than two
 //   cells, which is what lets the dither read as texture rather than as damage.
 //
-// 32 x 14, so the waveform can be bars rather than hints.
-const COLS = 32;
-const ROWS = 14;
-
+// Each mark carries its own lattice, because the two logos are not the same
+// shape and one grid cannot serve both. Forcing YouTube onto SoundCloud's wide
+// grid stretched a near-square badge into a letterbox; forcing SoundCloud onto
+// YouTube's square one squashed the cloud. That was the whole of the problem
+// across several attempts.
 const MARKS = {
   soundcloud: {
+    cols: 36,
+    rows: 16,
+    // Drawn from the real mark rather than from memory. Two things make it
+    // recognisable and neither was there before:
+    //
+    //   the cloud has a flat vertical left edge where the waveform meets it,
+    //   not a rounded crown sitting on a box;
+    //
+    //   its top domes, then DIPS, then rises again into a smaller right lobe
+    //   before falling away. Without that dip it is a hill, which is what every
+    //   previous attempt drew.
+    //
+    // The bars are lozenges in the original. At two cells they read as bars,
+    // which is as close as this resolution gets and closer than one cell, where
+    // the halftone eats them.
     ink: [
-      // Four bars, two cells wide with a gap, ascending toward the cloud.
-      [0, 10, 2, 4], [3, 8, 2, 6], [6, 6, 2, 8], [9, 4, 2, 10],
-      // The cloud: a crown in three steps onto a body that ends on the same
-      // baseline as the bars. Wider than it is tall, which is the whole point.
-      [19, 2, 7, 1], [17, 3, 11, 1], [15, 4, 15, 1], [14, 5, 17, 9],
+      [0, 7, 2, 3], [3, 6, 2, 5], [6, 5, 2, 7],
+      [9, 4, 2, 9], [12, 3, 2, 10], [15, 3, 2, 10],
+      // cloud, column by column: the profile is the shape
+      [19, 4, 1, 9], [20, 3, 1, 10], [21, 2, 1, 11], [22, 2, 1, 11],
+      [23, 2, 1, 11], [24, 2, 1, 11], [25, 3, 1, 10], [26, 4, 1, 9],
+      [27, 5, 1, 8], [28, 5, 1, 8],
+      [29, 4, 1, 9], [30, 4, 1, 9], [31, 4, 1, 9], [32, 5, 1, 8],
+      [33, 6, 1, 7], [34, 7, 1, 5],
     ],
     knockout: [],
   },
   youtube: {
-    // The play triangle is knocked out rather than drawn, so the hole shows
-    // whatever the mark sits on — one silhouette instead of two shapes.
-    ink: [[3, 1, 26, 1], [1, 2, 30, 10], [3, 12, 26, 1]],
-    knockout: [[12, 4, 3, 6], [15, 5, 3, 4], [18, 6, 2, 2]],
+    // Square, as it was. The badge is near enough to square that widening it
+    // reads as a stretched logo rather than a wide one.
+    cols: 16,
+    rows: 16,
+    ink: [[2, 3, 12, 1], [1, 4, 14, 8], [2, 12, 12, 1]],
+    knockout: [[6, 5, 2, 6], [8, 6, 2, 4], [10, 7, 1, 2]],
   },
 };
 
 /**
  * @param {'soundcloud'|'youtube'} name
- * @param {number} width  rendered width in CSS px; the height follows the lattice
+ * @param {number} height  rendered height in CSS px; the width follows the mark
+ *
+ * Sized by height rather than width, so a wide mark and a square one sit at the
+ * same weight in a row instead of one towering over the other.
  */
-export function ProviderMark({ name, width = 44, className = '' }) {
+export function ProviderMark({ name, height = 22, className = '' }) {
   const ref = useRef(null);
   const theme = useThemeTick();
 
-  const height = Math.round((width * ROWS) / COLS);
+  const { cols: COLS, rows: ROWS } = MARKS[name] ?? MARKS.youtube;
+  const width = Math.round((height * COLS) / ROWS);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -90,7 +115,7 @@ export function ProviderMark({ name, width = 44, className = '' }) {
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [name, width, height, theme]);
+  }, [name, width, height, COLS, ROWS, theme]);
 
   return (
     <canvas

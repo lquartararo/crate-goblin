@@ -97,7 +97,7 @@ export function Guide({ service, running, error }) {
                                hover:bg-wash
                                focus-visible:outline focus-visible:outline-2
                                focus-visible:outline-offset-2 focus-visible:outline-accent">
-              <ProviderMark name={s.mark} width={48} />
+              <ProviderMark name={s.mark} height={24} />
               {/* Stacked, so the note has its own line and cannot decide the
                   button's height by wrapping. Both rows are one line each at
                   every width, which is what kept SoundCloud taller than
