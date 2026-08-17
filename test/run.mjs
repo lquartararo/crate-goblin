@@ -656,31 +656,46 @@ await test('stats: playtime totals only what actually arrived', async () => {
   assert.equal(s2.total, 3);
 });
 
-await test('stats: genre names fold without a list of genres', async () => {
+await test('stats: genre names fold and are spelled like words', async () => {
   const { summarize } = await import('../src/lib/stats.js');
   const now = 1_700_000_000_000;
   const rows = (g, n) => Array.from({ length: n }, () => ({ t: now - 1, s: 'gate', ok: 1, g }));
+  const fold = (log) => Object.fromEntries(
+    summarize(log, 12, now).topGenres.map((x) => [x.name, x.n]),
+  );
 
-  const g = summarize([
+  // Five buckets at most, because only five are charted — a sixth would drop
+  // out of this and look like a folding bug.
+  const by = fold([
     ...rows('BUDOTS', 4), ...rows('Budots', 2), ...rows('budots', 1),
     ...rows('Budots Bolha', 3),
     ...rows('Dance & EDM', 2), ...rows('Dance', 1),
-    ...rows('Techno', 3), ...rows('Tech House', 2),
-  ], 12, now).topGenres;
+    ...rows('HARDSTYLE', 2),
+    ...rows('DNB', 2),
+    ...rows('World', 1),
+  ]);
 
-  const by = Object.fromEntries(g.map((x) => [x.name, x.n]));
+  // Case and punctuation carry no meaning in a hand-typed field, and a
+  // sub-genre folds into its parent — but only because the parent is present.
+  assert.equal(by.Budots, 10, 'every spelling and the sub-genre count as one');
 
-  // Case and punctuation carry no meaning in a hand-typed field.
-  assert.equal(by.BUDOTS, 10, 'spellings and the sub-genre fold together');
-  assert.equal(by['Dance & EDM'], 3, 'the parent absorbs the bare form');
+  // The label is the parent's own name. Pooling the child's spellings let a
+  // sub-genre name the bucket that exists because the parent does.
+  assert.ok(!('Budots Bolha' in by));
+  assert.equal(by.Dance, 3, 'the parent names the bucket it absorbed');
 
-  // The spelling shown is whichever the most tracks used.
-  assert.ok('BUDOTS' in by, 'the commonest spelling wins the label');
+  // BUDOTS is a word, not an initialism, so it is not shown shouting — and
+  // where nobody typed it quietly it is cased down anyway.
+  assert.ok(!('BUDOTS' in by));
+  assert.equal(by.Hardstyle, 2, 'an all-caps-only genre is still cased down');
 
-  // And the guard: a genre is only folded into one that exists on its own.
-  // "Tech House" shares no whole word prefix with "Techno", so it stays.
-  assert.equal(by.Techno, 3);
-  assert.equal(by['Tech House'], 2);
+  // Four letters or fewer is where the real initialisms live, so they are left.
+  assert.equal(by.DNB, 2);
+
+  // A genre sharing no whole word is a different genre.
+  const apart = fold([...rows('Techno', 3), ...rows('Tech House', 2)]);
+  assert.equal(apart.Techno, 3);
+  assert.equal(apart['Tech House'], 2);
 });
 
 // Reporting lives at the very bottom, and has to stay there.

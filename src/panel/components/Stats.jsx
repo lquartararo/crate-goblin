@@ -185,10 +185,13 @@ export function Stats() {
   // shortening happens here. Gentler than it was: names are folded now, so two
   // bars can no longer end up reading the same word, and "Drum & Bass" fits
   // where it used to be cut to "Drum". Only genuinely long names lose anything.
+  // Eight, not eleven. The axis label inherits font-mono, which in this theme
+  // is Redaction — a serif, with proper varying widths — so a character count
+  // is a rough proxy for a width and eleven of them still collided.
   const shorten = (name) => {
-    if (name.length <= 11) return name;
+    if (name.length <= 8) return name;
     const first = name.split(/[\s&/]+/)[0];
-    return first.length >= 4 && first.length <= 11 ? first : `${name.slice(0, 10)}…`;
+    return first.length >= 3 && first.length <= 8 ? first : `${name.slice(0, 7)}…`;
   };
   const genres = (data.topGenres ?? []).map((g) => ({ name: shorten(g.name), n: g.n }));
 

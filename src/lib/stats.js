@@ -138,21 +138,35 @@ function foldGenres(log) {
   for (const key of keys) {
     const parent = keys.find((k) => k !== key && key.startsWith(k + ' ') && byKey.has(k));
     if (!parent) continue;
-    const from = byKey.get(key);
-    const into = byKey.get(parent);
-    into.n += from.n;
-    for (const [spelling, n] of from.spellings) {
-      into.spellings.set(spelling, (into.spellings.get(spelling) ?? 0) + n);
-    }
+    // Counts move; spellings do not. A child's name is not a name for the
+    // parent — pooling them let "Budots Bolha" label a bucket whose whole
+    // reason for existing is that "Budots" is the genre. The parent keeps its
+    // own spellings and only grows by the count.
+    byKey.get(parent).n += byKey.get(key).n;
     byKey.delete(key);
   }
 
+  // Which spelling to show.
+  //
+  // The most common one was picked before, which made BUDOTS win over Budots
+  // purely because more uploads shout. It is a word, not an initialism, and a
+  // chart is not the place to repeat someone's caps lock. Any spelling that is
+  // not shouting is preferred; among those, the commonest. If everyone shouted,
+  // it gets cased down.
+  //
+  // A run of five or more capitals is taken as shouting; four or fewer is left
+  // alone, because that is where the real initialisms live — EDM, DNB, UKG,
+  // IDM. No list of them, just the observation that they are short.
+  const SHOUT = /[A-Z]{5,}/;
+  const prettify = (name) =>
+    name.replace(/[A-Za-z]{5,}/g, (w) => (w === w.toUpperCase() ? w[0] + w.slice(1).toLowerCase() : w));
+
   return [...byKey.values()]
-    .map(({ n, spellings }) => ({
-      // The spelling the most tracks used, ties going to the first seen.
-      name: [...spellings.entries()].sort((a, b) => b[1] - a[1])[0][0],
-      n,
-    }))
+    .map(({ n, spellings }) => {
+      const ranked = [...spellings.entries()].sort((a, b) => b[1] - a[1]);
+      const spoken = ranked.find(([name]) => !SHOUT.test(name));
+      return { name: prettify((spoken ?? ranked[0])[0]), n };
+    })
     .sort((a, b) => b.n - a.n)
     .slice(0, 5);
 }
