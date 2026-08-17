@@ -773,6 +773,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // Queue traffic needs the offscreen document alive before it can arrive.
+  // Opening the panel is a moment the folder can be checked for free: the flag
+  // means it is only ever a real call when something was actually staged.
+  if (msg.type === 'queue:state') sweepIfDirty();
+
   if (msg.type === 'queue:run' || msg.type === 'queue:state'
       || msg.type === 'queue:forget' || msg.type === 'queue:cancel') {
     (async () => {

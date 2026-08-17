@@ -19,18 +19,24 @@ const MARKS = {
   // being cut down to sixteen cells.
   soundcloud: {
     ink: [
-      // bars, ascending toward the cloud
-      [1, 9, 1, 3], [3, 8, 1, 4], [5, 6, 1, 6], [7, 5, 1, 7],
-      // The cloud. Its right edge steps inward as it rises rather than running
-      // straight down: a rectangle with two corners knocked off the top is not
-      // a cloud, it is a slab, and at this size the eye reads that wall as the
-      // mark having been cut off by the frame. Widest at the bottom, flat
-      // underneath, which is what a cumulus does.
+      // Three bars, not four. The fourth cost a column the cloud needed more.
+      [1, 10, 1, 2], [3, 9, 1, 3], [5, 7, 1, 5],
+      // The cloud, eight columns wide and seven rows tall.
       //
-      // Still stops at column 14, and column 8 stays empty — the lattice has no
-      // bleed, so anything reaching the last column really would be clipped,
-      // and the gap is what keeps the bars off the cloud.
-      [11, 3, 2, 1], [10, 4, 4, 1], [9, 5, 5, 2], [9, 7, 6, 5],
+      // It was six wide and nine tall, which is taller than it is wide — and a
+      // cloud that is taller than it is wide does not read as a cloud, it reads
+      // as a squashed one pressed against the frame. Nothing was being clipped;
+      // the proportion was simply wrong, and no amount of rounding the corners
+      // fixes that. Widening it meant giving up the fourth bar, which was the
+      // cheaper thing to lose.
+      //
+      // Column 15 stays empty. The lattice has no bleed, so a run reaching the
+      // last column genuinely is cut off by the canvas edge.
+      //
+      // Bars and cloud end on the same row. They did not, briefly, and a cloud
+      // floating two rows above the baseline its own waveform sits on is the
+      // kind of wrong that is hard to name and impossible to unsee.
+      [10, 3, 3, 1], [9, 4, 5, 1], [8, 5, 7, 1], [7, 6, 8, 6],
     ],
     knockout: [],
   },

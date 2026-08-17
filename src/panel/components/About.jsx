@@ -179,12 +179,17 @@ export function About({ onClose }) {
         {/* justify-center because the base button is inline-flex and packs to
             the start, which is right beside an icon and wrong once it spans the
             dialog. */}
-        <div className="mt-4 flex gap-2">
-          <Button size="sm" onClick={copy} className="flex-1 justify-center">
+        {/* Wraps rather than overflows. Side by side with flex-1 on the first,
+            the second was pushed past the dialog's edge on a narrow panel and
+            its label was cut in half — a destructive button you cannot fully
+            read is worse than one on its own line. */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button size="sm" onClick={copy} className="flex-1 min-w-[170px] justify-center">
             {copied ? 'Copied — send it to Louis' : 'Copy diagnostics'}
           </Button>
           <Button size="sm" onClick={reset}
-                  className={cn('justify-center', confirming && 'text-err border-err')}>
+                  className={cn('flex-1 min-w-[110px] justify-center whitespace-nowrap',
+                                confirming && 'text-err border-err')}>
             {confirming ? 'Sure?' : 'Reset stats'}
           </Button>
         </div>

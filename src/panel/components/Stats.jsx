@@ -4,6 +4,7 @@ import { Area } from '../../vendor/dither-kit/area';
 import { BarChart } from '../../vendor/dither-kit/bar-chart';
 import { Bar } from '../../vendor/dither-kit/bar';
 import { PieChart } from '../../vendor/dither-kit/pie-chart';
+import { XAxis } from '../../vendor/dither-kit/x-axis';
 import { Pie } from '../../vendor/dither-kit/pie';
 import { PALETTE, rgb } from '../../vendor/dither-kit/palette';
 import { readLog, summarize, STATS_EVENT } from '../../lib/stats.js';
@@ -170,7 +171,10 @@ export function Stats() {
                     single blob, and gives the eye an edge to follow. */}
                 <PieChart key={theme} data={routes} config={ROUTE} dataKey="n" nameKey="route"
                           innerRadius={0.55}>
-                  <Pie variant="gradient" />
+                  {/* Solid, not gradient. A slice that ramps from dark to
+                      light has no single colour for a key to show, so the
+                      swatches could never have matched what was drawn. */}
+                  <Pie variant="solid" />
                 </PieChart>
               </div>
               <Key items={routes.map((r) => ({
@@ -184,7 +188,11 @@ export function Stats() {
           <div className="min-w-[200px] flex-1">
             <Caption right={`top ${genres.length}`}>What you dig for</Caption>
             <div className="h-[150px]">
+              {/* Without an XAxis the bars draw and say nothing — six unlabelled
+                  columns are a shape, not a breakdown. The genre is the whole
+                  content of this chart. */}
               <BarChart key={theme} config={GENRE} data={genres} interactive={false}>
+                <XAxis dataKey="name" />
                 <Bar dataKey="n" variant="gradient" />
               </BarChart>
             </div>
