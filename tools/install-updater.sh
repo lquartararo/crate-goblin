@@ -72,6 +72,31 @@ else
   fi
 fi
 
+# Where the host will look, in the host's own order. Duplicated deliberately:
+# if these two disagree the install "succeeds" and nothing works, which is
+# exactly the failure this check exists to catch.
+find_tool() {
+  local name="$1" d
+  for d in /opt/homebrew/bin /usr/local/bin /opt/local/bin /usr/bin /bin \
+           "$HOME/.local/bin" "$HOME/bin" "$HOME/.bun/bin" \
+           "$HOME"/Library/Python/*/bin; do
+    [ -x "$d/$name" ] && { echo "$d/$name"; return 0; }
+  done
+  return 1
+}
+
+# Verify rather than assume. pip installs to ~/Library/Python/<version>/bin,
+# which is on nobody's PATH — the install reports success and the downloader is
+# invisible to the extension, which is a miserable way to find out.
+FOUND="$(find_tool yt-dlp || true)"
+if [ -n "$FOUND" ]; then
+  echo "    the extension will use $FOUND"
+else
+  echo "    WARNING: yt-dlp is not anywhere the extension looks." >&2
+  echo "             It may be installed but on a path only your shell knows." >&2
+  echo "             Fix: cp \"\$(command -v yt-dlp)\" ~/.local/bin/" >&2
+fi
+
 # ffmpeg does the conversion, and AIFF specifically depends on it.
 if ! command -v ffmpeg >/dev/null; then
   echo "==> ffmpeg"

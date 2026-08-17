@@ -19,6 +19,7 @@ bytes of UTF-8 JSON. Both directions. stdout is the channel, so nothing else may
 ever be printed to it.
 """
 
+import glob
 import json
 import os
 import re
@@ -36,8 +37,31 @@ MAX_MESSAGE = 1024 * 1024
 # Where the tools actually live. Chrome starts this process with a nearly empty
 # PATH, and yt-dlp spawns ffmpeg and deno by name off that PATH — so finding
 # them here is not enough, they have to be findable by the child too.
-BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
-            os.path.expanduser("~/.local/bin"), os.path.expanduser("~/.bun/bin")]
+def _bin_dirs():
+    """Everywhere these tools plausibly are, because Chrome tells us nothing.
+
+    A native host starts with almost no PATH, so every location has to be named.
+    The list grew one bug at a time and the expensive omission was pip's: the
+    installer falls back to `pip3 install --user yt-dlp` when there is no
+    Homebrew, that lands in ~/Library/Python/<version>/bin, and nothing looked
+    there. The install succeeded, said so, and the downloader was invisible —
+    which reads as "I ran the script and it still says not installed".
+    """
+    dirs = [
+        "/opt/homebrew/bin",                        # Homebrew, Apple silicon
+        "/usr/local/bin",                           # Homebrew, Intel
+        "/opt/local/bin",                           # MacPorts
+        "/usr/bin", "/bin",
+        os.path.expanduser("~/.local/bin"),         # our own fallback, and deno
+        os.path.expanduser("~/bin"),
+        os.path.expanduser("~/.bun/bin"),
+    ]
+    # pip --user, whichever Python wrote it. Sorted so a newer one wins.
+    dirs += sorted(glob.glob(os.path.expanduser("~/Library/Python/*/bin")), reverse=True)
+    return dirs
+
+
+BIN_DIRS = _bin_dirs()
 
 # A real file, because stdout is the protocol channel and cannot carry a word of
 # this. The extension reports the failing line itself; this is for the rest.
@@ -406,6 +430,7 @@ def probe():
         "ytdlp": ytdlp,
         "ffmpeg": ffmpeg,
         "js": next((n for n in ("deno", "node", "quickjs", "bun") if which(n)), None),
+        "searched": BIN_DIRS,
         "log": LOG,
         "version": run_version(ytdlp) if ytdlp else None,
     }
@@ -423,7 +448,15 @@ def run_version(ytdlp):
 def download(msg):
     ytdlp = which("yt-dlp")
     if not ytdlp:
-        return send({"type": "error", "reason": "yt-dlp is not installed. Re-run install-updater.sh"})
+        # Name the search, because "not installed" is usually wrong — it is
+        # installed somewhere nobody looked, and without this there is no way
+        # to tell those two apart from the outside.
+        log("yt-dlp not found. Searched: " + os.pathsep.join(BIN_DIRS))
+        return send({
+            "type": "error",
+            "reason": "yt-dlp is installed somewhere this cannot see it — see the log for where it looked",
+            "log": LOG,
+        })
 
     url = msg.get("url")
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
