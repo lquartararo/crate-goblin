@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BUCKET } from '../lib/triage.js';
 import { serviceOf } from '../lib/paths.js';
 import { Button } from './ui/button.jsx';
+import { Field } from './ui/field.jsx';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select.jsx';
 import { StatStrip } from './components/StatStrip.jsx';
 import { Guide } from './components/Guide.jsx';
@@ -10,6 +11,7 @@ import { Wash } from './components/Wash.jsx';
 import { Meter } from './components/Meter.jsx';
 import { Goblin } from './components/Goblin.jsx';
 import { About } from './components/About.jsx';
+import { Darkroom } from './components/Darkroom.jsx';
 import { Haul } from './components/Haul.jsx';
 import { maskStyle, LEVELS } from './ditherMask.js';
 import { useCrate } from './state/useCrate.js';
@@ -31,13 +33,6 @@ const FORMAT_HINT = {
 const Glyph = ({ name, size = 16 }) => (
   <span className="inline-flex flex-none" style={{ width: size, height: size }}
         dangerouslySetInnerHTML={{ __html: icon(name, size) }} />
-);
-
-const Field = ({ label, children, className = '' }) => (
-  <label className={`grid gap-[7px] ${className}`}>
-    <span className="label-caps opacity-80">{label}</span>
-    {children}
-  </label>
 );
 
 /** The title is the only thing that animates in — everything else paints final.
@@ -132,7 +127,7 @@ export function Panel() {
   }, []);
 
   const { state, crate, error } = useCrate();
-  const { jobs, active, pending, fraction, run, cancel, haul, clearHaul } = useJobs();
+  const { jobs, active, pending, fraction, run, cancel, cancelAll, haul, clearHaul } = useJobs();
   const { settings, set, opts } = useSettings();
 
   const [log, setLog] = useState([]);
@@ -143,6 +138,7 @@ export function Panel() {
 
   const [bridge, setBridge] = useState(null);
   const [about, setAbout] = useState(false);
+  const [darkroom, setDarkroom] = useState(false);
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'session:get' }).then(setSession).catch(() => {});
@@ -233,7 +229,11 @@ export function Panel() {
 
   return (
     <div className="relative px-10 pt-[34px] pb-18" style={entrance ?? undefined}>
-      {about && <About onClose={() => setAbout(false)} />}
+      {about && <About onClose={() => setAbout(false)} onDarkroom={() => setDarkroom(true)}
+                       covered={darkroom} />}
+      {/* A sibling of the about box, not a child of it: nested, every click
+          inside this one would bubble to that one's backdrop and shut both. */}
+      {darkroom && <Darkroom onClose={() => setDarkroom(false)} />}
       {/* Total progress, pinned to the very top edge and spanning the full
           width. Above everything rather than below it: the queue scrolls, and a
           summary that scrolls away stops being a summary. */}
@@ -402,6 +402,24 @@ export function Panel() {
             </div>
           </section>
         </>
+      )}
+
+      {/* Above the queue rather than beside the Queue button, because that
+          button is part of the crate controls and those disappear the moment
+          you navigate away — which is exactly when a running queue is hardest
+          to stop and easiest to forget about.
+
+          Two, not one: with a single row still going, the X on the row itself
+          is already the whole feature, and a second control for it would only
+          make the list look busier than it is. */}
+      {pending > 1 && (
+        <div className="flex justify-end pt-3.5 -mb-1">
+          <Button size="sm" variant="ghost" onClick={cancelAll}
+                  className="opacity-70 hover:opacity-100 hover:text-err">
+            <Glyph name="close" size={11} />
+            <span>Cancel all</span>
+          </Button>
+        </div>
       )}
 
       {/* The container the rows measure against. A side panel is dragged to

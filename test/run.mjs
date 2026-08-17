@@ -698,6 +698,65 @@ await test('stats: genre names fold and are spelled like words', async () => {
   assert.equal(apart['Tech House'], 2);
 });
 
+// The darkroom's tonal stretch. Pure arithmetic over pixel data, and the one
+// part of that tool that can be wrong without looking wrong — a picture that
+// came out slightly muddy is not something anyone reports.
+{
+  const { stretchTones } = await import('../src/panel/dither.js');
+
+  // n grey pixels, RGBA, from a list of values.
+  const grey = (values) => {
+    const px = new Uint8ClampedArray(values.length * 4);
+    values.forEach((v, i) => { px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = v; px[i * 4 + 3] = 255; });
+    return px;
+  };
+  const range = (px) => {
+    let lo = 255, hi = 0;
+    for (let i = 0; i < px.length; i += 4) { lo = Math.min(lo, px[i]); hi = Math.max(hi, px[i]); }
+    return [lo, hi];
+  };
+
+  await test('darkroom: a dark picture is opened up to the full ramp', () => {
+    // Everything between 40 and 80 — a third of the ramp, which is two of the
+    // four palette levels never being reached.
+    const px = grey(Array.from({ length: 200 }, (_, i) => 40 + Math.round((i / 199) * 40)));
+    assert.equal(stretchTones(px), true);
+
+    const [lo, hi] = range(px);
+    assert.ok(lo <= 4, `darkest should reach the floor, got ${lo}`);
+    assert.ok(hi >= 250, `lightest should reach the ceiling, got ${hi}`);
+  });
+
+  await test('darkroom: one speck and one glare do not count as the range', () => {
+    // 198 pixels bunched in the middle, plus a black speck and a blown
+    // highlight. Taking the outright extremes would call this full-range and
+    // leave the picture exactly as muddy as it arrived.
+    const body = Array.from({ length: 198 }, (_, i) => 100 + Math.round((i / 197) * 40));
+    const px = grey([0, ...body, 255]);
+    assert.equal(stretchTones(px), true);
+
+    // The body itself is what got stretched, so most of it now spans the ramp.
+    let wide = 0;
+    for (let i = 4; i < px.length - 4; i += 4) if (px[i] > 200 || px[i] < 55) wide++;
+    assert.ok(wide > 40, `the body should have been opened up, ${wide} pixels moved to the ends`);
+  });
+
+  await test('darkroom: a flat picture is left alone rather than amplified', () => {
+    // A scan of paper. There is no range here to recover, and stretching it
+    // turns sensor noise into a field of dots that was never in the picture.
+    const px = grey(Array.from({ length: 200 }, (_, i) => 128 + (i % 3)));
+    assert.equal(stretchTones(px), false);
+    assert.deepEqual(range(px), [128, 130], 'untouched');
+  });
+
+  await test('darkroom: alpha survives the stretch', () => {
+    const px = grey(Array.from({ length: 200 }, (_, i) => 40 + Math.round((i / 199) * 40)));
+    px[3] = 0;
+    stretchTones(px);
+    assert.equal(px[3], 0, 'transparency is not tone and must not be rewritten');
+  });
+}
+
 // Reporting lives at the very bottom, and has to stay there.
 //
 // It used to sit above the last few tests, which pushed their results into an

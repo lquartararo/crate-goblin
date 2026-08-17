@@ -210,6 +210,22 @@ export function useJobs() {
     chrome.runtime.sendMessage({ type: 'queue:cancel', id }).catch(() => {});
   }, [remove, setStatus]);
 
+  /**
+   * Take back everything still going.
+   *
+   * Row by row through the same path, rather than a queue-wide message, because
+   * every one of them needs the same three things done — the optimistic status,
+   * the removal timer, the port cut — and a second implementation of that is a
+   * second place for the two to drift apart.
+   *
+   * Finished rows are left where they are. A failure that stayed pinned is a
+   * decision waiting to be made, and sweeping it away as part of "stop what you
+   * are doing" would answer it on your behalf.
+   */
+  const cancelAll = useCallback(() => {
+    for (const [id, job] of jobs) if (!job.done) cancel(id);
+  }, [jobs, cancel]);
+
   /** Hand a batch to the offscreen document. Resolves once it's accepted. */
   const run = useCallback(async (rows, tracks, opts, crateTitle) => {
     // Maps don't survive runtime messaging, which is JSON, and only the tracks
@@ -226,6 +242,6 @@ export function useJobs() {
     return { skipped: res?.skipped ?? 0 };
   }, []);
 
-  return { jobs, active, pending, fraction, run, cancel, setStatus, remove,
+  return { jobs, active, pending, fraction, run, cancel, cancelAll, setStatus, remove,
            haul, clearHaul: () => setHaul(null) };
 }

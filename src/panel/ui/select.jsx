@@ -50,7 +50,15 @@ export function SelectContent({ className, children, ...props }) {
         position="popper"
         sideOffset={4}
         className={cn(
-          'z-50 overflow-hidden rounded-[3px] border-[1.5px] border-ink bg-paper',
+          // Above every dialog, not merely above the page. This menu is
+          // portalled to the body, so it competes with the modals on z-index
+          // alone rather than on nesting — and at 50 it tied with the about box
+          // and lost outright to the darkroom above it, which meant picking a
+          // grain in a dialog you could not see the options through.
+          //
+          // A dropdown belongs on top of whatever opened it, always, so the
+          // number is set once here rather than patched per dialog.
+          'z-[100] overflow-hidden rounded-[3px] border-[1.5px] border-ink bg-paper',
           'min-w-[var(--radix-select-trigger-width)]',
           className,
         )}

@@ -106,6 +106,56 @@ export function dither(
   ctx.putImageData(img, 0, 0);
 }
 
+/**
+ * Stretch a picture's own tonal range to fill the ramp. Modifies `data`.
+ *
+ * A quantiser is only as good as the range handed to it: a photo shot dark
+ * occupies a third of the ramp, so two of the four palette levels never get
+ * used and the result is mud with a crosshatch on it. Album artwork is mastered
+ * and mostly arrives full-range, which is why this was never needed for the
+ * tiles — a picture someone drops on the darkroom is whatever came off a phone.
+ *
+ * The alternative was a contrast slider, and this is better than one for the
+ * same reason a limiter is better than a volume knob: the person with the
+ * problem does not know the fix is a number.
+ *
+ * @param {Uint8ClampedArray} data  RGBA, as it comes off getImageData
+ * @returns {boolean}  whether anything was changed
+ */
+export function stretchTones(data, { ignore = 0.02, minRange = 24 } = {}) {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < data.length; i += 4) {
+    hist[Math.round(luma(data[i], data[i + 1], data[i + 2]) * 255)]++;
+  }
+
+  // Percentiles rather than the outright darkest and lightest pixel. One blown
+  // highlight or one black speck is enough to make the range look full while
+  // almost all of the picture is squeezed into the middle of it — and those are
+  // not rare, they are what a phone camera does to a light fitting.
+  const cut = Math.max(1, Math.round((data.length / 4) * ignore));
+  let lo = 0;
+  let hi = 255;
+  for (let v = 0, n = 0; v < 256; v++) { n += hist[v]; if (n >= cut) { lo = v; break; } }
+  for (let v = 255, n = 0; v >= 0; v--) { n += hist[v]; if (n >= cut) { hi = v; break; } }
+
+  // A genuinely flat image — a scan of paper, a screenshot of one colour — has
+  // no range to recover, and stretching one would amplify sensor noise into a
+  // field of dots that was never in the picture.
+  if (hi - lo < minRange) return false;
+
+  const scale = 255 / (hi - lo);
+  // Clamped by the array's own type, which is the whole reason for using it:
+  // both ends of the ramp map outside 0..255 by design.
+  const lut = new Uint8ClampedArray(256);
+  for (let v = 0; v < 256; v++) lut[v] = Math.round((v - lo) * scale);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = lut[data[i]];
+    data[i + 1] = lut[data[i + 1]];
+    data[i + 2] = lut[data[i + 2]];
+  }
+  return true;
+}
+
 /** Parse "#rrggbb" or "r, g, b" out of a CSS custom property. */
 export function readColor(el, prop, fallback) {
   const v = getComputedStyle(el).getPropertyValue(prop).trim();

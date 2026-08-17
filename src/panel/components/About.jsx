@@ -51,7 +51,8 @@ const Row = ({ k, v, bad }) => (
   </div>
 );
 
-export function About({ onClose }) {
+/** @param {boolean} covered  something is open on top of this — stay out of its way */
+export function About({ onClose, onDarkroom, covered = false }) {
   const [pokes, setPokes] = useState(0);
   const [theme, setTheme] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -61,12 +62,18 @@ export function About({ onClose }) {
 
   const version = chrome.runtime.getManifest().version;
 
+  useEffect(() => { panel.current?.focus(); }, []);
+
+  // Separate from the focus above, and skipped while something sits on top:
+  // both dialogs listen on the window, so one Escape used to shut the darkroom
+  // and this box together. Folding the two effects into one instead would have
+  // pulled focus back here the moment the darkroom opened.
   useEffect(() => {
+    if (covered) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     addEventListener('keydown', onKey);
-    panel.current?.focus();
     return () => removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, covered]);
 
   // Asked once, when opened. The probe spawns a process, so it is not something
   // to do on every render of a panel that is usually shut.
@@ -158,6 +165,17 @@ export function About({ onClose }) {
                       style={{ background: t.swatch }} />
             ))}
           </div>
+        </div>
+
+        {/* Beside the theme rather than beside the diagnostics, which is where
+            it belongs by subject: both of these are about how things look, and
+            nothing behind this button will ever help work out why a download
+            failed. */}
+        <div className="mt-4 pt-4 border-t-[1.5px] border-ink flex items-center gap-3">
+          <span className="font-mono text-[10px] tracking-[.14em] uppercase opacity-50">
+            Darkroom
+          </span>
+          <Button size="sm" onClick={onDarkroom} className="ml-auto">Dither a picture</Button>
         </div>
 
         <div className="mt-4 pt-4 border-t-[1.5px] border-ink
