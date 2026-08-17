@@ -50,7 +50,7 @@ export const SOURCES = ['original', 'gate', 'stream', 'lucida', 'yt-dlp'];
 let chain = Promise.resolve();
 
 /** Note one finished track. Never throws — a failed write must not fail a download. */
-export function record({ via, source, genre, ok = true, bytes = 0 }) {
+export function record({ via, source, genre, seconds, ok = true, bytes = 0 }) {
   chain = chain.then(async () => {
     try {
       const log = (await host.getStored(KEY)) ?? [];
@@ -62,6 +62,8 @@ export function record({ via, source, genre, ok = true, bytes = 0 }) {
         // Trimmed hard. SoundCloud genres are free text and some are a
         // paragraph; this is for a chart, not for the record.
         g: genre ? String(genre).trim().slice(0, 24) : undefined,
+        d: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : undefined,
+
       });
       await host.setStored(KEY, log.slice(-CAP));
     } catch {
@@ -107,11 +109,13 @@ export function summarize(log, span = 12, now = Date.now()) {
   const bySource = Object.fromEntries(SOURCES.map((s) => [s, 0]));
   let failed = 0;
   let mb = 0;
+  let secs = 0;
 
   for (const e of log) {
     if (!e?.ok) { failed++; continue; }
     if (e.s in bySource) bySource[e.s]++;
     mb += e.b || 0;
+    secs += e.d || 0;
     const age = ageInWeeks(e.t);
     if (age >= 0 && age < span) weeks[span - 1 - age]++;
   }
@@ -129,5 +133,6 @@ export function summarize(log, span = 12, now = Date.now()) {
   const total = log.filter((e) => e?.ok).length;
   const top = SOURCES.reduce((a, b) => (bySource[b] > bySource[a] ? b : a), SOURCES[0]);
 
-  return { weeks, bySource, topGenres, total, failed, mb, top: bySource[top] ? top : null };
+  return { weeks, bySource, topGenres, total, failed, mb, seconds: secs,
+           top: bySource[top] ? top : null };
 }

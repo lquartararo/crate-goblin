@@ -41,6 +41,21 @@ const ROUTE = {
   'yt-dlp': { label: 'YouTube', color: 'crate4' },
 };
 
+/**
+ * Hours once there are hours, minutes until then.
+ *
+ * "0.4 hours" is a worse way of saying 24 minutes, and "312 minutes" is a worse
+ * way of saying five hours. The unit follows the number rather than being
+ * chosen once and made to cover both.
+ */
+function playtime(seconds) {
+  const mins = Math.round(seconds / 60);
+  if (mins < 90) return { value: mins, label: mins === 1 ? 'minute of music' : 'minutes of music' };
+  const hours = seconds / 3600;
+  // One decimal below ten hours, none above: at 47.3 hours the tenth is noise.
+  return { value: hours < 10 ? hours.toFixed(1) : Math.round(hours), label: 'hours of music' };
+}
+
 const Figure = ({ value, label }) => (
   <div className="grid gap-1">
     <span className="font-figure text-[26px] leading-none tabular-nums">{value}</span>
@@ -140,6 +155,7 @@ export function Stats() {
 
       <div className="flex flex-wrap gap-x-9 gap-y-4">
         <Figure value={data.total} label="tracks kept" />
+        {data.seconds > 0 && <Figure {...playtime(data.seconds)} />}
         {data.mb > 0 && (
           <Figure value={data.mb >= 1000 ? `${(data.mb / 1000).toFixed(1)} GB` : `${data.mb} MB`}
                   label="on disk" />

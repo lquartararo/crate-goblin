@@ -165,8 +165,14 @@ async function runBatch({ rows, tracks, opts, crateTitle }) {
       // Kept out of the row and out of the way, but not thrown away — this is
       // the only trace of which route was tried first.
       if (res.note) console.debug('[crate] took the fallback:', row.title, '—', res.note);
-      record({ via: res.via, source: res.source, genre: row.genre,
-               ok: !failed, bytes: res.bytes });
+      record({
+        via: res.via, source: res.source, genre: row.genre,
+        ok: !failed, bytes: res.bytes,
+        // The file's own length where the host measured it, and the page's
+        // otherwise. A native row has no duration to fall back on — it is built
+        // from the tab title — which is why the host measures at all.
+        seconds: res.seconds ?? (row.durationMs ? Math.round(row.durationMs / 1000) : undefined),
+      });
       push(row.id, { text: `${res.via}${size}`, cls: failed ? 'warn' : 'ok',
                      inFlight: false, done: true, progress: 1 });
     } catch (e) {

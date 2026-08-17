@@ -293,7 +293,8 @@ def convert(msg):
     except OSError: pass
 
     send({"type": "done", "path": dest, "name": os.path.basename(dest),
-          "bytes": os.path.getsize(dest)})
+          "bytes": os.path.getsize(dest),
+          "seconds": (probe_audio(dest) or {}).get("seconds")})
 
 
 def probe_audio(path):
@@ -309,17 +310,19 @@ def probe_audio(path):
     try:
         out = subprocess.run(
             [ffprobe, "-v", "error", "-select_streams", "a:0",
-             "-show_entries", "stream=codec_name,bit_rate:format=bit_rate",
+             "-show_entries", "stream=codec_name,bit_rate:format=bit_rate,duration",
              "-of", "json", path],
             capture_output=True, text=True, timeout=30, env=child_env())
         d = json.loads(out.stdout or "{}")
         stream = (d.get("streams") or [{}])[0]
         codec = (stream.get("codec_name") or "").lower()
         rate = stream.get("bit_rate") or (d.get("format") or {}).get("bit_rate")
+        secs = (d.get("format") or {}).get("duration")
         return {
             "codec": codec,
             "kbps": round(int(rate) / 1000) if rate and str(rate).isdigit() else None,
             "lossless": codec in ("flac", "alac", "pcm_s16le", "pcm_s24le", "pcm_f32le"),
+            "seconds": round(float(secs)) if secs else None,
         }
     except Exception as e:
         log(f"probe failed: {e}")
@@ -553,8 +556,13 @@ def download(msg):
             n += 1
 
         shutil.move(src, final)
+        # How long the music is, measured off the file rather than trusted from
+        # a page. YouTube rows carry no duration at all — the panel builds them
+        # from the tab title and nothing else — so this is the only number that
+        # works for every route.
         send({"type": "done", "path": final, "name": os.path.basename(final),
-              "source": chosen, "bytes": os.path.getsize(final)})
+              "source": chosen, "bytes": os.path.getsize(final),
+              "seconds": (probe_audio(final) or {}).get("seconds")})
 
 
 def main():

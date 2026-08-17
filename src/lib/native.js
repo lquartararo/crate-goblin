@@ -74,7 +74,9 @@ export async function convertNative(job) {
       fn(arg);
     };
     port.onMessage.addListener((msg) => {
-      if (msg?.type === 'done') finish(resolve, { path: msg.path, name: msg.name, bytes: msg.bytes });
+      if (msg?.type === 'done') {
+        finish(resolve, { path: msg.path, name: msg.name, bytes: msg.bytes, seconds: msg.seconds });
+      }
       // Not an error: the file was fine, just worse than what is on offer.
       else if (msg?.type === 'worse') finish(resolve, { worse: true, kbps: msg.kbps });
       else if (msg?.type === 'error') finish(reject, new Error(msg.reason ?? 'conversion failed'));
@@ -158,7 +160,8 @@ export function downloadNative({ id, url, format, media, folder, headers }, onPr
     port.onMessage.addListener((msg) => {
       if (msg?.type === 'progress') onProgress?.(msg.text);
       else if (msg?.type === 'done') {
-        finish(resolve, { path: msg.path, name: msg.name, source: msg.source, bytes: msg.bytes });
+        finish(resolve, { path: msg.path, name: msg.name, source: msg.source,
+                          bytes: msg.bytes, seconds: msg.seconds });
       }
       else if (msg?.type === 'error') finish(reject, new Error(msg.reason ?? 'download failed'));
     });

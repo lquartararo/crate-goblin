@@ -641,6 +641,21 @@ await test('stats: this week lands in this week, not last', async () => {
   assert.equal(s2.total, 4);
 });
 
+await test('stats: playtime totals only what actually arrived', async () => {
+  const { summarize } = await import('../src/lib/stats.js');
+  const now = 1_700_000_000_000;
+
+  const s2 = summarize([
+    { t: now - 1, s: 'gate', ok: 1, b: 40, d: 210 },
+    { t: now - 1, s: 'stream', ok: 1, b: 8, d: 190 },
+    { t: now - 1, s: 'stream', ok: 0, d: 9999 },   // failed: its length is not music you have
+    { t: now - 1, s: 'stream', ok: 1, b: 5 },      // no duration measured
+  ], 12, now);
+
+  assert.equal(s2.seconds, 400, 'sums the ones that arrived and carried a length');
+  assert.equal(s2.total, 3);
+});
+
 // Reporting lives at the very bottom, and has to stay there.
 //
 // It used to sit above the last few tests, which pushed their results into an
