@@ -96,6 +96,68 @@ export async function readLog() {
 }
 
 /**
+ * Genre labels, folded without a list of genres.
+ *
+ * SoundCloud's genre field is free text, so one genre arrives spelled several
+ * ways: BUDOTS, Budots, budots, "Budots Bolha", "Dance & EDM" beside "Dance".
+ * Two rules do almost all of the work and neither needs to know what a genre is:
+ *
+ *   Same letters, same genre. Case, punctuation and spacing carry no meaning
+ *   in a field people type by hand, so they are stripped before comparing.
+ *
+ *   A genre that begins with another genre is that genre. "Budots Bolha" folds
+ *   into "Budots" — but only when "Budots" is present on its own, so a lone
+ *   sub-genre keeps its full name rather than being truncated toward something
+ *   nobody wrote. That is the guard that stops this inventing categories.
+ *
+ * The spelling shown is whichever the most tracks used, so the chart reads back
+ * in the label people actually type.
+ */
+function foldGenres(log) {
+  const norm = (s) => s.toLowerCase()
+    .replace(/[&/+,]/g, ' ')
+    .replace(/[^a-z0-9 ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Pass one: exact matches after normalising.
+  const byKey = new Map();
+  for (const e of log) {
+    if (!e?.ok || !e.g) continue;
+    const key = norm(e.g);
+    if (!key) continue;
+    const bucket = byKey.get(key) ?? { n: 0, spellings: new Map() };
+    bucket.n++;
+    bucket.spellings.set(e.g, (bucket.spellings.get(e.g) ?? 0) + 1);
+    byKey.set(key, bucket);
+  }
+
+  // Pass two: fold a longer key into a shorter one it starts with, on a word
+  // boundary. Longest first, so "a b c" lands on "a b" rather than "a".
+  const keys = [...byKey.keys()].sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    const parent = keys.find((k) => k !== key && key.startsWith(k + ' ') && byKey.has(k));
+    if (!parent) continue;
+    const from = byKey.get(key);
+    const into = byKey.get(parent);
+    into.n += from.n;
+    for (const [spelling, n] of from.spellings) {
+      into.spellings.set(spelling, (into.spellings.get(spelling) ?? 0) + n);
+    }
+    byKey.delete(key);
+  }
+
+  return [...byKey.values()]
+    .map(({ n, spellings }) => ({
+      // The spelling the most tracks used, ties going to the first seen.
+      name: [...spellings.entries()].sort((a, b) => b[1] - a[1])[0][0],
+      n,
+    }))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 5);
+}
+
+/**
  * The log folded into what the panel draws.
  *
  * `weeks` runs oldest to newest and always has `span` entries, including the
@@ -130,17 +192,7 @@ export function summarize(log, span = 12, now = Date.now()) {
   // What you actually dig for, biggest first. Only tracks that arrived and only
   // ones that stated a genre — SoundCloud leaves it blank often enough that
   // counting the blanks would make "unknown" the top genre on most crates.
-  // Keyed case-insensitively: SoundCloud genres are free text, so "BUDOTS" and
-  // "Budots" are one genre typed twice and splitting them halves both. The
-  // first spelling seen is the one shown.
-  const genres = new Map();
-  for (const e of log) {
-    if (!e?.ok || !e.g) continue;
-    const key = e.g.toLowerCase();
-    const seen = genres.get(key);
-    genres.set(key, { name: seen?.name ?? e.g, n: (seen?.n ?? 0) + 1 });
-  }
-  const topGenres = [...genres.values()].sort((a, b) => b.n - a.n).slice(0, 5);
+  const topGenres = foldGenres(log);
 
   const total = log.filter((e) => e?.ok).length;
   const top = SOURCES.reduce((a, b) => (bySource[b] > bySource[a] ? b : a), SOURCES[0]);

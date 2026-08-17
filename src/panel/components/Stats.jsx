@@ -182,12 +182,13 @@ export function Stats() {
     .map(([key, n]) => ({ route: key, n }));
 
   // The axis centres a label under each bar and does nothing about overlap, so
-  // the shortening has to happen here. First word where there is one — "Dance"
-  // beats "Dance & E…" — and a hard cut after that.
+  // shortening happens here. Gentler than it was: names are folded now, so two
+  // bars can no longer end up reading the same word, and "Drum & Bass" fits
+  // where it used to be cut to "Drum". Only genuinely long names lose anything.
   const shorten = (name) => {
+    if (name.length <= 11) return name;
     const first = name.split(/[\s&/]+/)[0];
-    const pick = first.length >= 4 ? first : name;
-    return pick.length > 9 ? `${pick.slice(0, 8)}…` : pick;
+    return first.length >= 4 && first.length <= 11 ? first : `${name.slice(0, 10)}…`;
   };
   const genres = (data.topGenres ?? []).map((g) => ({ name: shorten(g.name), n: g.n }));
 
