@@ -7,6 +7,7 @@ import { PieChart } from '../../vendor/dither-kit/pie-chart';
 import { Pie } from '../../vendor/dither-kit/pie';
 import { PALETTE, rgb } from '../../vendor/dither-kit/palette';
 import { readLog, summarize, STATS_EVENT } from '../../lib/stats.js';
+import { useThemeTick } from '../useThemeTick.js';
 
 // Three charts, because there are three different questions.
 //
@@ -107,6 +108,9 @@ const Caption = ({ children, right }) => (
  */
 export function Stats() {
   const [data, setData] = useState(null);
+  // Keyed on this, so a palette change remounts the canvases. They paint once
+  // from the seeds and nothing about a mutated table tells them to look again.
+  const theme = useThemeTick();
 
   useEffect(() => {
     const read = () => readLog().then((log) => setData(log.length ? summarize(log, WEEKS) : null));
@@ -146,7 +150,7 @@ export function Stats() {
       <div>
         <Caption right={`last ${WEEKS}`}>Tracks a week</Caption>
         <div className="h-[104px]">
-          <AreaChart data={weekly} config={WEEKLY} interactive={false}>
+          <AreaChart key={theme} data={weekly} config={WEEKLY} interactive={false}>
             <Area dataKey="tracks" variant="gradient" />
           </AreaChart>
         </div>
@@ -164,7 +168,7 @@ export function Stats() {
               <div className="w-[150px] h-[150px] flex-none">
                 {/* The hole is what stops five slices of one hue reading as a
                     single blob, and gives the eye an edge to follow. */}
-                <PieChart data={routes} config={ROUTE} dataKey="n" nameKey="route"
+                <PieChart key={theme} data={routes} config={ROUTE} dataKey="n" nameKey="route"
                           innerRadius={0.55}>
                   <Pie variant="gradient" />
                 </PieChart>
@@ -180,7 +184,7 @@ export function Stats() {
           <div className="min-w-[200px] flex-1">
             <Caption right={`top ${genres.length}`}>What you dig for</Caption>
             <div className="h-[150px]">
-              <BarChart data={genres} config={GENRE} interactive={false}>
+              <BarChart key={theme} config={GENRE} data={genres} interactive={false}>
                 <Bar dataKey="n" variant="gradient" />
               </BarChart>
             </div>

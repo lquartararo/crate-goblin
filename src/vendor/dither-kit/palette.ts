@@ -54,6 +54,23 @@ export const PALETTE: Record<DitherColor, Seed> = {
   grey: { fill: [92, 92, 100], line: [140, 140, 150], star: [165, 165, 175] },
 }
 
+/**
+ * LOCAL ADDITION. Repoint the crate seeds at the theme currently applied.
+ *
+ * PALETTE is a static table upstream, which is right for a fixed brand and
+ * wrong here: this panel ships five themes, and a chart painted from numbers
+ * frozen at import time stayed plum on a green palette. The seeds are mutated
+ * rather than the table replaced, because the chart canvases hold a reference
+ * to it and read at paint time.
+ */
+export function setCrateSeeds(tones: Rgb[]) {
+  const keys: DitherColor[] = ["crate", "crate2", "crate3", "crate4", "crate5"]
+  keys.forEach((k, i) => {
+    const fill = tones[i] ?? tones[0]
+    PALETTE[k] = { fill, line: tones[1] ?? tones[0], star: tones[4] ?? tones[0] }
+  })
+}
+
 export const rgb = ([r, g, b]: Rgb, k = 1, a = 1) =>
   `rgba(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)},${a})`
 

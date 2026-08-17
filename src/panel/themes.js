@@ -1,3 +1,5 @@
+import { setCrateSeeds } from '../vendor/dither-kit/palette';
+
 // Five palettes, one shape.
 //
 // Every colour in the interface comes from four custom properties, and both
@@ -82,11 +84,31 @@ const KEY = 'theme';
 // tells them to look again, so they are told.
 export const THEME_EVENT = 'cg:theme';
 
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+
+/**
+ * Five tones for the charts, derived from the theme rather than fixed.
+ *
+ * dither-kit's palette is a static table, which is right for one brand and
+ * wrong for five themes — the charts stayed plum on a green palette because
+ * their numbers were frozen at import. These walk from the ink through the
+ * accent toward the paper, which is the range the rest of the interface uses,
+ * so a pie's slices stay distinguishable whatever the theme.
+ */
+function chartTones(theme) {
+  const ink = hex(theme.vars['--color-ink']);
+  const accent = hex(theme.vars['--color-accent']);
+  const paper = hex(theme.vars['--color-paper']);
+  return [accent, ink, mix(accent, paper, 0.38), mix(ink, accent, 0.5), mix(accent, paper, 0.66)];
+}
+
 export function applyTheme(name) {
   const theme = THEMES[name] ?? THEMES[DEFAULT_THEME];
   for (const [k, v] of Object.entries(theme.vars)) {
     document.documentElement.style.setProperty(k, v);
   }
+  setCrateSeeds(chartTones(theme));
   dispatchEvent(new Event(THEME_EVENT));
 }
 
