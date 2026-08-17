@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AreaChart } from '../../vendor/dither-kit/area-chart';
 import { Area } from '../../vendor/dither-kit/area';
 import { BarChart } from '../../vendor/dither-kit/bar-chart';
@@ -6,7 +6,8 @@ import { Bar } from '../../vendor/dither-kit/bar';
 import { PieChart } from '../../vendor/dither-kit/pie-chart';
 import { XAxis } from '../../vendor/dither-kit/x-axis';
 import { Pie } from '../../vendor/dither-kit/pie';
-import { PALETTE, rgb } from '../../vendor/dither-kit/palette';
+import { PALETTE } from '../../vendor/dither-kit/palette';
+import { BAYER4 } from '../dither-kit.js';
 import { readLog, summarize, STATS_EVENT } from '../../lib/stats.js';
 import { useThemeTick } from '../useThemeTick.js';
 
@@ -76,13 +77,46 @@ const Figure = ({ value, label }) => (
  * of the chart. Beside it instead, reading the same seeds the slices are painted
  * from so the two can never disagree.
  */
+/**
+ * A swatch drawn the way the slice is drawn.
+ *
+ * A flat square was the wrong key for a dithered slice: the slice is a scatter
+ * of cells in one colour and reads as a lighter tone than the colour itself, so
+ * a solid chip beside it looked like a different entry. Same seed, same Bayer
+ * threshold, same coverage — the two now agree because they are made the same
+ * way.
+ */
+function Swatch({ color }) {
+  const ref = useRef(null);
+  const theme = useThemeTick();
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const [r, g, b] = PALETTE[color]?.fill ?? PALETTE.crate.fill;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(canvas.width, canvas.height);
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const i = (y * canvas.width + x) << 2;
+        // The coverage a slice averages, so the chip reads at the same weight.
+        if (0.72 <= BAYER4[y & 3][x & 3]) { img.data[i + 3] = 0; continue; }
+        img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, [color, theme]);
+
+  return <canvas ref={ref} width={10} height={10}
+                 className="block flex-none [image-rendering:pixelated]" />;
+}
+
 const Key = ({ items }) => (
   <ul className="m-0 p-0 list-none grid gap-1.5">
     {items.map(({ key, label, n }) => (
       <li key={key} className="flex items-center gap-2 font-mono text-[10px]
                                tracking-[.1em] uppercase leading-none">
-        <span className="w-2.5 h-2.5 flex-none rounded-[1px]"
-              style={{ background: rgb(PALETTE[ROUTE[key]?.color ?? 'crate'].fill) }} />
+        <Swatch color={ROUTE[key]?.color ?? 'crate'} />
         <span className="opacity-70">{label}</span>
         <span className="ml-auto tabular-nums opacity-45">{n}</span>
       </li>
@@ -140,11 +174,15 @@ export function Stats() {
     .filter(([, n]) => n > 0)
     .map(([key, n]) => ({ route: key, n }));
 
-  const genres = (data.topGenres ?? []).map((g) => ({
-    // Long enough to recognise, short enough not to collide under the axis.
-    name: g.name.length > 12 ? `${g.name.slice(0, 11)}…` : g.name,
-    n: g.n,
-  }));
+  // The axis centres a label under each bar and does nothing about overlap, so
+  // the shortening has to happen here. First word where there is one — "Dance"
+  // beats "Dance & E…" — and a hard cut after that.
+  const shorten = (name) => {
+    const first = name.split(/[\s&/]+/)[0];
+    const pick = first.length >= 4 ? first : name;
+    return pick.length > 9 ? `${pick.slice(0, 8)}…` : pick;
+  };
+  const genres = (data.topGenres ?? []).map((g) => ({ name: shorten(g.name), n: g.n }));
 
   return (
     <section className="mt-7 pt-5 border-t-[1.5px] border-ink grid gap-8">
@@ -171,10 +209,11 @@ export function Stats() {
                     single blob, and gives the eye an edge to follow. */}
                 <PieChart key={theme} data={routes} config={ROUTE} dataKey="n" nameKey="route"
                           innerRadius={0.55}>
-                  {/* Solid, not gradient. A slice that ramps from dark to
-                      light has no single colour for a key to show, so the
-                      swatches could never have matched what was drawn. */}
-                  <Pie variant="solid" />
+                  {/* Dotted: a real halftone with gaps, rather than the smooth
+                      ramp of "gradient" or the flat fill of "solid". The colour
+                      stays constant across a slice and only the coverage
+                      varies, which is what lets a dithered swatch match it. */}
+                  <Pie variant="dotted" />
                 </PieChart>
               </div>
               <Key items={routes.map((r) => ({

@@ -130,12 +130,17 @@ export function summarize(log, span = 12, now = Date.now()) {
   // What you actually dig for, biggest first. Only tracks that arrived and only
   // ones that stated a genre — SoundCloud leaves it blank often enough that
   // counting the blanks would make "unknown" the top genre on most crates.
-  const genres = {};
-  for (const e of log) if (e?.ok && e.g) genres[e.g] = (genres[e.g] ?? 0) + 1;
-  const topGenres = Object.entries(genres)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([name, n]) => ({ name, n }));
+  // Keyed case-insensitively: SoundCloud genres are free text, so "BUDOTS" and
+  // "Budots" are one genre typed twice and splitting them halves both. The
+  // first spelling seen is the one shown.
+  const genres = new Map();
+  for (const e of log) {
+    if (!e?.ok || !e.g) continue;
+    const key = e.g.toLowerCase();
+    const seen = genres.get(key);
+    genres.set(key, { name: seen?.name ?? e.g, n: (seen?.n ?? 0) + 1 });
+  }
+  const topGenres = [...genres.values()].sort((a, b) => b.n - a.n).slice(0, 5);
 
   const total = log.filter((e) => e?.ok).length;
   const top = SOURCES.reduce((a, b) => (bySource[b] > bySource[a] ? b : a), SOURCES[0]);
