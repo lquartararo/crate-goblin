@@ -172,6 +172,12 @@ export function About({ onClose }) {
           <Row k="converter"
                v={!detail ? '…' : detail.bridge?.ffmpeg ? 'ffmpeg ready' : 'missing'}
                bad={Boolean(detail) && !detail.bridge?.ffmpeg} />
+          {/* A missing JS runtime is the one dependency that fails silently:
+              YouTube hands over worse audio and nothing errors. Worth a line,
+              since otherwise the only symptom is quality nobody measures. */}
+          <Row k="youtube audio"
+               v={!detail ? '…' : detail.bridge?.js ? 'full quality' : 'reduced — deno missing'}
+               bad={Boolean(detail) && detail.bridge?.ok && !detail.bridge?.js} />
           <Row k="kept" v={detail ? `${detail.stats.total} tracks` : '…'} />
           {detail?.stats.failed > 0 && <Row k="failed" v={detail.stats.failed} />}
         </div>

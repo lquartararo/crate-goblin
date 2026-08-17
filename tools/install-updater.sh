@@ -109,7 +109,12 @@ done
 # ------------------------------------------------------------------ updater
 mkdir -p "$HOME/Library/LaunchAgents" "$REPO/.updater"
 
-# One script for the agent to run, so both updates share a schedule and a log.
+# A shim, not the logic.
+#
+# It pulls and then hands over to tools/tick.sh in the repo, so what the timer
+# does can change in a commit. Inlining the steps here meant every new one — a
+# JS runtime, a staging sweep — reached only people who re-ran this script, and
+# nothing ever told them to.
 TICK="$REPO/.updater/tick.sh"
 cat > "$TICK" <<TICK_EOF
 #!/bin/bash
@@ -118,14 +123,8 @@ echo "--- \$(date '+%Y-%m-%d %H:%M:%S') ---"
 # --ff-only so a local edit fails loudly instead of being merged on a machine
 # nobody is sitting at. The extension keeps running the version it has.
 "$GIT" -C "$REPO" pull --ff-only --quiet || echo "git pull failed"
-YTDLP="\$(command -v yt-dlp || echo "\$HOME/.local/bin/yt-dlp")"
-[ -x "\$YTDLP" ] && "\$YTDLP" -U 2>&1 | tail -1
-# The host sweeps this whenever it runs; this is the backstop for a machine
-# that stopped using the extension with a file still sitting there.
-STAGING="\$HOME/Downloads/crate-goblin-staging"
-[ -d "\$STAGING" ] && find "\$STAGING" -type f -mmin +60 -delete 2>/dev/null
-[ -d "\$STAGING" ] && rmdir "\$STAGING" 2>/dev/null
-exit 0
+# Pull first, then run the pulled copy.
+[ -x "$REPO/tools/tick.sh" ] && exec "$REPO/tools/tick.sh" "$REPO"
 TICK_EOF
 chmod +x "$TICK"
 
