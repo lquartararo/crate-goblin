@@ -3,59 +3,55 @@ import { BAYER4, clamp01 } from '../dither-kit.js';
 import { roles } from '../palette.js';
 import { useThemeTick } from '../useThemeTick.js';
 
-// Provider marks on the same 16x16 lattice the goblin is cut from.
+// Provider marks, drawn as cells and dithered like everything else here.
 //
-// Not the real logos. Those are flat vector artwork with brand colours and
-// anti-aliased curves, and dropping either one into this panel would be the
-// only smooth, full-colour thing on a page built entirely out of quantised
-// cells. These are the same marks redrawn as cells, which is what everything
-// else here already is.
+// Rebuilt from scratch after several attempts that all failed the same two
+// ways, both decided before a single cell was drawn:
 //
-// Runs rather than ASCII art — [x, y, w, h] on the lattice. A picture made of
-// strings is easier to read and much easier to get subtly wrong, and a mark
-// that is one column off reads as a mistake rather than as a style.
+//   The grid was square. The SoundCloud logo is about two and a half times
+//   wider than it is tall, so a 16x16 lattice left the cloud narrower than it
+//   was deep — which reads as a cloud squashed against the frame however its
+//   corners are rounded. Adjusting runs cannot fix an aspect ratio, and four
+//   goes at rounding corners never touched the actual problem. Each mark
+//   carries its own dimensions now.
+//
+//   The features were one cell wide. A halftone works by removing coverage, so
+//   a one-cell bar loses half of itself and becomes a dotted line — the
+//   waveform was disintegrating by design. Nothing here is thinner than two
+//   cells, which is what lets the dither read as texture rather than as damage.
+//
+// 32 x 14, so the waveform can be bars rather than hints.
+const COLS = 32;
+const ROWS = 14;
+
 const MARKS = {
-  // Ascending bars running into a cloud: the waveform is the half that survives
-  // being cut down to sixteen cells.
   soundcloud: {
     ink: [
-      // Three bars, not four. The fourth cost a column the cloud needed more.
-      [1, 10, 1, 2], [3, 9, 1, 3], [5, 7, 1, 5],
-      // The cloud, eight columns wide and seven rows tall.
-      //
-      // It was six wide and nine tall, which is taller than it is wide — and a
-      // cloud that is taller than it is wide does not read as a cloud, it reads
-      // as a squashed one pressed against the frame. Nothing was being clipped;
-      // the proportion was simply wrong, and no amount of rounding the corners
-      // fixes that. Widening it meant giving up the fourth bar, which was the
-      // cheaper thing to lose.
-      //
-      // Column 15 stays empty. The lattice has no bleed, so a run reaching the
-      // last column genuinely is cut off by the canvas edge.
-      //
-      // Bars and cloud end on the same row. They did not, briefly, and a cloud
-      // floating two rows above the baseline its own waveform sits on is the
-      // kind of wrong that is hard to name and impossible to unsee.
-      [10, 3, 3, 1], [9, 4, 5, 1], [8, 5, 7, 1], [7, 6, 8, 6],
+      // Four bars, two cells wide with a gap, ascending toward the cloud.
+      [0, 10, 2, 4], [3, 8, 2, 6], [6, 6, 2, 8], [9, 4, 2, 10],
+      // The cloud: a crown in three steps onto a body that ends on the same
+      // baseline as the bars. Wider than it is tall, which is the whole point.
+      [19, 2, 7, 1], [17, 3, 11, 1], [15, 4, 15, 1], [14, 5, 17, 9],
     ],
     knockout: [],
   },
-  // The rounded slab with a play triangle knocked out of it.
   youtube: {
-    ink: [[2, 3, 12, 1], [1, 4, 14, 8], [2, 12, 12, 1]],
-    knockout: [[6, 5, 2, 6], [8, 6, 2, 4], [10, 7, 1, 2]],
+    // The play triangle is knocked out rather than drawn, so the hole shows
+    // whatever the mark sits on — one silhouette instead of two shapes.
+    ink: [[3, 1, 26, 1], [1, 2, 30, 10], [3, 12, 26, 1]],
+    knockout: [[12, 4, 3, 6], [15, 5, 3, 4], [18, 6, 2, 2]],
   },
 };
 
-const N = 16;
-
 /**
  * @param {'soundcloud'|'youtube'} name
- * @param {number} size  rendered edge in CSS px
+ * @param {number} width  rendered width in CSS px; the height follows the lattice
  */
-export function ProviderMark({ name, size = 34, className = '' }) {
+export function ProviderMark({ name, width = 44, className = '' }) {
   const ref = useRef(null);
   const theme = useThemeTick();
+
+  const height = Math.round((width * ROWS) / COLS);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -63,14 +59,13 @@ export function ProviderMark({ name, size = 34, className = '' }) {
     if (!canvas || !mark) return;
 
     const { ink } = roles();
-    const cell = size / N;
+    const cell = width / COLS;
 
-    // The lattice, resolved once: which cells are solid and which are cut out.
-    const grid = Array.from({ length: N }, () => new Array(N).fill('.'));
+    const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill('.'));
     const stamp = (runs, ch) => {
       for (const [x, y, w = 1, h = 1] of runs) {
-        for (let j = y; j < y + h && j < N; j++) {
-          for (let i = x; i < x + w && i < N; i++) grid[j][i] = ch;
+        for (let j = y; j < y + h && j < ROWS; j++) {
+          for (let i = x; i < x + w && i < COLS; i++) grid[j][i] = ch;
         }
       }
     };
@@ -78,36 +73,30 @@ export function ProviderMark({ name, size = 34, className = '' }) {
     stamp(mark.knockout, 'o');
 
     const ctx = canvas.getContext('2d');
-    const img = ctx.createImageData(size, size);
+    const img = ctx.createImageData(width, height);
     const px = img.data;
 
-    // The mark itself is the halftone, and everything around it is nothing.
-    // Painting a dithered square and standing a solid silhouette on top had it
-    // backwards: the ground was the only part carrying any texture, so the
-    // marks read as logos sitting on a patterned tile rather than as artwork
-    // belonging to the same system as the rest of the panel.
-    //
-    // The ramp only goes to 0.72. Further and the one-cell-wide bars of the
-    // SoundCloud waveform come apart into loose dots at the bottom, which stops
-    // reading as halftone and starts reading as a mark that failed to draw.
-    for (let y = 0; y < size; y++) {
-      const density = clamp01(1 - 0.28 * (y / size));
-      for (let x = 0; x < size; x++) {
-        const ch = grid[Math.min((y / cell) | 0, N - 1)][Math.min((x / cell) | 0, N - 1)];
+    for (let y = 0; y < height; y++) {
+      // A shallow ramp. The mark is the halftone and the ground is nothing, so
+      // this is the whole texture — but much below this the two-cell features
+      // start losing rows and it stops looking deliberate.
+      const density = clamp01(1 - 0.26 * (y / height));
+      for (let x = 0; x < width; x++) {
+        const ch = grid[Math.min((y / cell) | 0, ROWS - 1)][Math.min((x / cell) | 0, COLS - 1)];
         const lit = ch === '#' && density > BAYER4[y & 3][x & 3];
-        const i = (y * size + x) << 2;
+        const i = (y * width + x) << 2;
         if (!lit) { px[i + 3] = 0; continue; }   // knockout and ground alike
         px[i] = ink[0]; px[i + 1] = ink[1]; px[i + 2] = ink[2]; px[i + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [name, size, theme]);
+  }, [name, width, height, theme]);
 
   return (
     <canvas
       ref={ref}
-      width={size}
-      height={size}
+      width={width}
+      height={height}
       role="img"
       aria-label={name}
       className={`block flex-none [image-rendering:pixelated] ${className}`}

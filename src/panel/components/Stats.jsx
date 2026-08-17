@@ -8,7 +8,7 @@ import { XAxis } from '../../vendor/dither-kit/x-axis';
 import { Pie } from '../../vendor/dither-kit/pie';
 import { PALETTE } from '../../vendor/dither-kit/palette';
 import { BAYER4 } from '../dither-kit.js';
-import { readLog, summarize, STATS_EVENT } from '../../lib/stats.js';
+import { readLog, summarize, SOURCES, STATS_EVENT } from '../../lib/stats.js';
 import { useThemeTick } from '../useThemeTick.js';
 
 // Three charts, because there are three different questions.
@@ -35,15 +35,22 @@ const WEEKS = 12;
 const WEEKLY = { tracks: { label: 'Tracks', color: 'crate' } };
 const GENRE = { n: { label: 'Tracks', color: 'crate' } };
 
-// Slices told apart by tone rather than hue, in the order the routes are worth
-// noticing.
-const ROUTE = {
-  free: { label: 'Free', color: 'crate' },
-  gate: { label: 'Gates', color: 'crate3' },
-  stream: { label: 'Streams', color: 'crate2' },
-  lucida: { label: 'Elsewhere', color: 'crate5' },
-  'yt-dlp': { label: 'YouTube', color: 'crate4' },
+// Built from SOURCES rather than written out beside it.
+//
+// It was written out, with `free` where the data says `original` — so the pie
+// looked up a key that did not exist and fell back to grey while the key fell
+// back to plum. The two could not have agreed, and nothing anywhere said so.
+// Derived from the same list the recorder uses, a route without a colour is now
+// impossible rather than merely unlikely.
+const ROUTE_LABEL = {
+  original: 'Free', gate: 'Gates', stream: 'Streams',
+  lucida: 'Elsewhere', 'yt-dlp': 'YouTube',
 };
+const TONES = ['crate', 'crate3', 'crate2', 'crate5', 'crate4'];
+const ROUTE = Object.fromEntries(SOURCES.map((name, i) => [name, {
+  label: ROUTE_LABEL[name] ?? name,
+  color: TONES[i % TONES.length],
+}]));
 
 /**
  * Hours once there are hours, minutes until then.
