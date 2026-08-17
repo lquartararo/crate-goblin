@@ -59,8 +59,9 @@ SEEN="$(find_tool yt-dlp || true)"
 if [ -n "$SEEN" ]; then
   echo "    already installed ($("$SEEN" --version 2>/dev/null || echo unknown))"
   # And bring it up to date. YouTube breaks it about monthly, so an old one is
-  # not a working one.
-  "$SEEN" -U 2>&1 | tail -1 || true
+  # not a working one — and a pip-installed copy cannot update itself, which is
+  # how one reaches a year old while a timer reports success.
+  update_ytdlp "$SEEN" 2>&1 | sed 's/^/    /' || true
 elif command -v yt-dlp >/dev/null && command -v brew >/dev/null; then
   # On PATH but not anywhere the extension looks. Installing brew's copy puts
   # one where both can find it rather than trying to guess at the other.

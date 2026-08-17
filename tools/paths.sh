@@ -36,3 +36,31 @@ find_tool() {
   done < <(crate_bin_dirs)
   return 1
 }
+
+# Bring yt-dlp up to date, whichever way it was installed.
+#
+# `yt-dlp -U` only works on the standalone binary. A pip install refuses with
+# "You installed yt-dlp with pip ... Use that to update", which is a correct and
+# completely inert answer for a timer: it printed an error every half hour and
+# the copy stayed a year old.
+#
+# Homebrew's copy is preferred when it can be had, because /opt/homebrew/bin is
+# first in the search order — installing it takes precedence over the stale one
+# without having to remove anything.
+update_ytdlp() {
+  local ytdlp="$1" out
+  out="$("$ytdlp" -U 2>&1 | tail -2)"
+  printf '%s\n' "$out"
+
+  case "$out" in
+    *"installed yt-dlp with pip"*|*"Use that to update"*|*"wheel from PyPi"*)
+      if command -v brew >/dev/null; then
+        echo "pip-managed and cannot self-update — installing Homebrew's, which takes precedence"
+        brew install yt-dlp 2>&1 | tail -2
+      elif command -v pip3 >/dev/null; then
+        echo "pip-managed — updating with pip"
+        pip3 install --user --upgrade yt-dlp 2>&1 | tail -2
+      fi
+      ;;
+  esac
+}

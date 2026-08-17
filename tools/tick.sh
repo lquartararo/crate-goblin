@@ -22,7 +22,7 @@ REPO="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # install reaches a year old while a timer claims to be maintaining it.
 YTDLP="$(find_tool yt-dlp || true)"
 if [ -n "$YTDLP" ]; then
-  "$YTDLP" -U 2>&1 | tail -1
+  update_ytdlp "$YTDLP"
 else
   echo "yt-dlp not found in any known location — re-run tools/install-updater.sh"
 fi
