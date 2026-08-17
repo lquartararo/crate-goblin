@@ -93,7 +93,17 @@ fi
 # invisible to the extension, which is a miserable way to find out.
 FOUND="$(find_tool yt-dlp || true)"
 if [ -n "$FOUND" ]; then
-  echo "    the extension will use $FOUND"
+  echo "    the extension will use $FOUND ($("$FOUND" --version 2>/dev/null || echo unknown))"
+  # Say when there is more than one. Several copies at different versions is
+  # common on a machine that has had pip and Homebrew both take a turn, and it
+  # makes every version number ambiguous until you know which is which.
+  OTHERS="$(find_all_tools yt-dlp | grep -vFx "$FOUND" || true)"
+  if [ -n "$OTHERS" ]; then
+    echo "    other copies, unused and safe to ignore:"
+    while IFS= read -r o; do
+      [ -n "$o" ] && echo "      $o ($("$o" --version 2>/dev/null || echo unknown))"
+    done <<< "$OTHERS"
+  fi
 else
   echo "    WARNING: yt-dlp is not anywhere the extension looks." >&2
   echo "             It may be installed but on a path only your shell knows." >&2

@@ -28,6 +28,19 @@ crate_bin_dirs() {
   ls -d "$HOME"/Library/Python/*/bin 2>/dev/null | sort -r
 }
 
+# Every copy, not just the winner.
+#
+# One machine turned out to have three yt-dlp installs across different Python
+# versions. Uninstalling "the" one removed a copy that was not being used and
+# nothing changed, which is impossible to reason about when the tool only ever
+# reports a single path.
+find_all_tools() {
+  local name="$1" d
+  while IFS= read -r d; do
+    [ -x "$d/$name" ] && printf '%s\n' "$d/$name"
+  done < <(crate_bin_dirs)
+}
+
 # Resolve a tool the way the extension will see it, not the way your shell does.
 find_tool() {
   local name="$1" d
