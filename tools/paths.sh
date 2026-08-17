@@ -67,12 +67,22 @@ update_ytdlp() {
 
   case "$out" in
     *"installed yt-dlp with pip"*|*"Use that to update"*|*"wheel from PyPi"*)
+      # Output is not piped anywhere.
+      #
+      # It was piped to `tail -2`, which buffers everything until the command
+      # exits — so a Homebrew install that takes two minutes printed nothing for
+      # two minutes and looked exactly like a hang. The last two lines are worth
+      # less than knowing it is alive.
       if command -v brew >/dev/null; then
         echo "pip-managed and cannot self-update — installing Homebrew's, which takes precedence"
-        brew install yt-dlp 2>&1 | tail -2
+        if brew install yt-dlp; then
+          echo "installed $(find_tool yt-dlp) ($("$(find_tool yt-dlp)" --version 2>/dev/null || echo unknown))"
+        else
+          echo "brew install failed — the old copy is still in place and still works, just out of date" >&2
+        fi
       elif command -v pip3 >/dev/null; then
         echo "pip-managed — updating with pip"
-        pip3 install --user --upgrade yt-dlp 2>&1 | tail -2
+        pip3 install --user --upgrade yt-dlp
       fi
       ;;
   esac
